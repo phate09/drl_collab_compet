@@ -51,9 +51,13 @@ class AgentDDPG(GenericAgent):
         self.replay_buffer = PrioritizedReplayBuffer(config[constants.buffer_size], alpha=0.6)
         self.log_dir = config[constants.log_dir] if constants.log_dir in config else None
         self.n_step_td = config[constants.n_step_td]
-        self.noise_scheduler: Scheduler = config[constants.noise_scheduler] if constants.log_dir in config else None
+        self.use_noise = config[constants.use_noise] if constants.use_noise in config else False
+        self.noise_scheduler: Scheduler = config[constants.noise_scheduler] if constants.noise_scheduler in config else None
+        self.learn_start: int = config[constants.learn_start] if constants.learn_start in config else 0
+        self.writer: SummaryWriter = config[constants.summary_writer]
+        self.evaluate_every = config[constants.evaluate_every] if constants.evaluate_every in config else 100
         self.config = config
-        self.starting_episode = 0  # used for loading checkpoints
+        self.starting_episode = 0  # used for loading checkpoints from save file
 
     # self.t_update_target_step = 0
     def required_properties(self):
@@ -68,9 +72,10 @@ class AgentDDPG(GenericAgent):
                 constants.model_critic,
                 constants.optimiser_actor,
                 constants.optimiser_critic,
-                constants.ending_condition]
+                constants.ending_condition,
+                constants.summary_writer]
 
-    def learn(self, experiences, indexes, is_values):
+    def learn(self, experiences, indexes, is_values, i_episode: int):
         """Update value parameters using given batch of experience tuples.
 
         Params
@@ -108,8 +113,10 @@ class AgentDDPG(GenericAgent):
         loss_actor.mean().backward(retain_graph=False)
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1)
         self.optimiser_actor.step()
-        self.critic.eval()
-        self.actor.eval()
+        # self.critic.eval()
+        # self.actor.eval()
+        self.writer.add_scalar('loss/actor', loss_critic.mean(), i_episode)
+        self.writer.add_scalar('loss/critic', loss_critic.mean(), i_episode)
         self.soft_update(self.critic, self.target_critic, self.tau)
         self.soft_update(self.actor, self.target_actor, self.tau)
 
@@ -126,7 +133,7 @@ class AgentDDPG(GenericAgent):
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
-    def train(self, env, writer: SummaryWriter, ending_condition):
+    def train(self, env, ending_condition):
         """
 
         :param env:
@@ -139,6 +146,11 @@ class AgentDDPG(GenericAgent):
         scores_window = deque(maxlen=100)  # last 100 scores
         i_steps = 0
         for i_episode in range(self.starting_episode, self.n_episodes):
+            if i_episode != 0 and i_episode % self.evaluate_every == 0:
+                print("")
+                eval_scores: list = self.evaluate(env, train_mode=True)
+                print("")
+                self.writer.add_scalar('eval/score_average', np.mean(eval_scores), i_episode)
             env_info = env.reset(train_mode=True)[brain_name]  # reset the environment
             n_agents = len(env_info.agents)
             # Reset the memory of the agent
@@ -149,14 +161,13 @@ class AgentDDPG(GenericAgent):
             done_list = []
             states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=self.device)  # get the current state
             score = 0
-            self.actor.eval()
-            self.critic.eval()
+            # self.actor.eval()
+            # self.critic.eval()
             noise_magnitude = 0.2 if self.noise_scheduler is None else self.noise_scheduler.get(i_episode)
             for t in range(self.max_t):
                 with torch.no_grad():
                     actions: torch.Tensor = self.actor(states)
-                    noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude)
-                    # noise = ((noise_upper - noise_lower) * torch.rand_like(actions) + noise_lower)  # adds exploratory noise
+                    noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude) if self.use_noise else 0  # adds exploratory noise
                     actions = torch.clamp(actions + noise, -1, 1)  # clips the action to the allowed boundaries
                     env_info = env.step(actions.cpu().detach().numpy())[brain_name]  # send the action to the environment
                     next_states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=self.device)  # get the next state
@@ -173,11 +184,11 @@ class AgentDDPG(GenericAgent):
                         for i in range(states.size()[0]):
                             self.replay_buffer.add((state_list[t - self.n_step_td + 1][i], actions[i], rewards_n[i], next_state_list[t][i], dones[i]), abs(td_error[i].item()))
                 # train the agent
-                if len(self.replay_buffer) > self.batch_size and i_steps != 0 and i_steps % self.train_every == 0:
+                if len(self.replay_buffer) > self.batch_size and i_steps > self.learn_start and i_steps != 0 and i_steps % self.train_every == 0:
                     beta = (self.beta_end - self.beta_start) * i_episode / self.n_episodes + self.beta_start
                     for i in range(self.train_n_times):
                         experiences, is_values, indexes = self.replay_buffer.sample(self.batch_size, beta=beta)
-                        self.learn(experiences=experiences, indexes=indexes, is_values=is_values)
+                        self.learn(experiences=experiences, indexes=indexes, is_values=is_values, i_episode=i_episode)
                 states = next_states
                 score += rewards.mean().item()
                 i_steps += n_agents
@@ -185,9 +196,9 @@ class AgentDDPG(GenericAgent):
                     break
             scores_window.append(score)  # save most recent score
             scores.append(score)  # save most recent score
-            writer.add_scalar('data/score', score, i_episode)
-            writer.add_scalar('data/score_average', np.mean(scores_window), i_episode)
-            writer.flush()
+            self.writer.add_scalar('data/score', score, i_episode)
+            self.writer.add_scalar('data/score_average', np.mean(scores_window), i_episode)
+            self.writer.flush()
             print(f'\rEpisode {i_episode + 1}\tAverage Score: {np.mean(scores_window):.2f} ', end="")
             if (i_episode + 1) % 100 == 0:
                 print(f'\rEpisode {i_episode + 1}\tAverage Score: {np.mean(scores_window):.2f} ')
@@ -200,7 +211,7 @@ class AgentDDPG(GenericAgent):
                 break
         return scores
 
-    def evaluate(self, env, n_episodes=1):
+    def evaluate(self, env, n_episodes=1, train_mode=False):
         brain_name = env.brain_names[0]
         scores = []  # list containing scores from each episode
         scores_window = deque(maxlen=100)  # last 100 scores
@@ -208,7 +219,7 @@ class AgentDDPG(GenericAgent):
         self.actor.eval()
         self.critic.eval()
         for i_episode in range(n_episodes):
-            env_info = env.reset(train_mode=False)[brain_name]  # reset the environment
+            env_info = env.reset(train_mode=train_mode)[brain_name]  # reset the environment
             n_agents = len(env_info.agents)
             states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=self.device)  # get the current state
             score = 0
@@ -231,18 +242,26 @@ class AgentDDPG(GenericAgent):
                     break
             scores_window.append(score)  # save most recent score
             scores.append(score)  # save most recent score
-            print(f'\rEpisode {i_episode + 1}\tAverage Score: {np.mean(scores_window):.2f} ', end="")
+            print(f'\rEval Episode {i_episode + 1}\tAverage Score: {np.mean(scores_window):.2f} ', end="")
             if (i_episode + 1) % 100 == 0:
-                print(f'\rEpisode {i_episode + 1}\tAverage Score: {np.mean(scores_window):.2f} ')
+                print(f'\rEval Episode {i_episode + 1}\tAverage Score: {np.mean(scores_window):.2f} ')
+        self.actor.train()
+        self.critic.train()
         return scores
 
     def calculate_td_errors(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, next_states: torch.Tensor) -> torch.Tensor:
         self.target_actor.eval()
         self.target_critic.eval()
+        self.actor.eval()
+        self.critic.eval()
         concat_states = torch.cat([states, actions], dim=1)
         suggested_next_action = self.target_actor(next_states)
         concat_next_states = torch.cat([next_states, suggested_next_action], dim=1)
         td_errors = rewards + np.power(self.gamma, self.n_step_td) * self.target_critic(concat_next_states) - self.critic(concat_states)
+        self.target_actor.train()
+        self.target_critic.train()
+        self.actor.train()
+        self.critic.train()
         return td_errors  # calculate the td-errors, maybe use GAE
 
     def calculate_discounted_rewards(self, reward_list: list) -> np.ndarray:

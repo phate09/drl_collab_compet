@@ -11,9 +11,8 @@ from unityagents import UnityEnvironment
 
 import utility.constants as constants
 from agents.Unity.Agent_DDPG import AgentDDPG
-from networks.actor_critic.Policy_actor import Policy_actor
-from networks.actor_critic.Policy_critic import Policy_critic
-from utility.Scheduler import Scheduler
+from networks.actor_critic.Policy_actor_noisy import Policy_actor
+from networks.actor_critic.Policy_critic_noisy import Policy_critic
 
 
 def main():
@@ -45,6 +44,7 @@ def main():
     log_dir = os.path.join('runs', current_time + '_' + comment)
     os.mkdir(log_dir)
     print(f"logging to {log_dir}")
+    writer = SummaryWriter(log_dir=log_dir)
     config = {
         constants.optimiser_actor: optimizer_actor,
         constants.optimiser_critic: optimizer_critic,
@@ -63,17 +63,17 @@ def main():
         constants.train_n_times: 2,
         constants.n_step_td: 1,
         constants.ending_condition: ending_condition,
+        constants.learn_start: 1600,  # training starts after this many transitions
         constants.log_dir: log_dir,
-        constants.noise_scheduler: Scheduler(1.0, 0.02, 1000)
+        constants.summary_writer:writer
     }
     config_file = open(os.path.join(log_dir, "config.json"), "w+")
     config_file.write(json.dumps(json.loads(jsonpickle.encode(config, unpicklable=False, max_depth=1)), indent=4, sort_keys=True))
     config_file.close()
-    writer = SummaryWriter(log_dir=log_dir)
     agent = AgentDDPG(config)
     # agent.save("/home/edoardo/PycharmProjects/ProximalPolicyOptimisation/runs/Aug13_16-46-32_DDPG Unity Reacher multi/checkpoint_50.pth",1)
     # agent.load("/home/edoardo/PycharmProjects/ProximalPolicyOptimisation/runs/Aug13_16-46-32_DDPG Unity Reacher multi/checkpoint_50.pth")
-    agent.train(env, writer, ending_condition)
+    agent.train(env, ending_condition)
     print("Finished.")
 
 
