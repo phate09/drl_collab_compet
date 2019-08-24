@@ -25,7 +25,7 @@ class Policy_actor(nn.Module):
         return output
 
     def test(self, device='cpu'):
-        self.eval()
+        # self.eval()
         input = torch.randn(10, self.input_dim, requires_grad=False)
         targets = torch.rand(10, self.output_dim, requires_grad=False)
         torchtest.test_suite(self, F.mse_loss, torch.optim.Adam(self.parameters()), batch=[input, targets], test_vars_change=True, test_inf_vals=True, test_nan_vals=True, device=device)
