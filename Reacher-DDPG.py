@@ -26,7 +26,7 @@ def main():
     np.random.seed(seed)
     worker_id = 0
     print(f'Worker_id={worker_id}')
-    env = UnityEnvironment("./environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
+    env = UnityEnvironment("./environment/Reacher_Linux_multi/Reacher.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
     brain = env.brains[env.brain_names[0]]
     env_info = env.reset(train_mode=True)[env.brain_names[0]]
     print('Number of agents:', len(env_info.agents))
@@ -34,7 +34,7 @@ def main():
     state_size = brain.vector_observation_space_size
     state_multiplier = brain.num_stacked_vector_observations
     action_type = brain.vector_action_space_type
-    comment = f"DDPG Unity Tennis"
+    comment = f"DDPG Unity Reacher"
     actor = Policy_actor(state_size * state_multiplier, action_size).to(device)
     critic = Policy_critic(state_size * state_multiplier + action_size).to(device)
     # actor.test(device)
