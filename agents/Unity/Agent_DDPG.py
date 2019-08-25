@@ -2,7 +2,7 @@ import os
 import pickle
 from collections import deque
 from functools import reduce
-
+import pyximport; pyximport.install()
 import numpy as np
 import torch
 import torch.nn as nn
