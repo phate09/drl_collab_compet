@@ -11,7 +11,7 @@ from tensorboardX import SummaryWriter
 
 import utility.constants as constants
 from agents.GenericAgent import GenericAgent
-from utility.PrioritisedExperienceReplayBuffer import PrioritizedReplayBuffer
+from utility.PrioritisedExperienceReplayBuffer_cython import PrioritizedReplayBuffer
 from utility.Scheduler import Scheduler
 
 

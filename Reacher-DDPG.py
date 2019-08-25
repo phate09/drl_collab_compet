@@ -26,7 +26,7 @@ def main():
     np.random.seed(seed)
     worker_id = 0
     print(f'Worker_id={worker_id}')
-    env = UnityEnvironment("./environment/Reacher_Linux_multi/Reacher.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
+    env = UnityEnvironment("./environment/Reacher_Linux/Reacher.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
     brain = env.brains[env.brain_names[0]]
     env_info = env.reset(train_mode=True)[env.brain_names[0]]
     print('Number of agents:', len(env_info.agents))
@@ -53,7 +53,7 @@ def main():
         constants.n_episodes: 2000,
         constants.batch_size: 512,
         constants.buffer_size: int(1e6),
-        constants.max_t: 2000,  # just > 1000
+        constants.max_t: 200,  # just > 1000
         constants.input_dim: state_size * state_multiplier,
         constants.output_dim: action_size,
         constants.gamma: 0.99,  # discount
