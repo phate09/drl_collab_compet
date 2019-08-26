@@ -11,8 +11,9 @@ from unityagents import UnityEnvironment
 
 import utility.constants as constants
 from agents.Unity.Agent_DDPG import AgentDDPG
-from networks.actor_critic.Policy_actor_noisy import Policy_actor
-from networks.actor_critic.Policy_critic_noisy import Policy_critic
+from networks.actor_critic.Policy_actor import Policy_actor
+from networks.actor_critic.Policy_critic import Policy_critic
+from utility.Scheduler import Scheduler
 
 
 def main():
@@ -38,8 +39,8 @@ def main():
     actor = Policy_actor(state_size * state_multiplier, action_size).to(device)
     critic = Policy_critic(state_size * state_multiplier + action_size).to(device)
     # actor.test(device)
-    optimizer_actor = optim.Adam(actor.parameters(), lr=1e-3)
-    optimizer_critic = optim.Adam(critic.parameters(), lr=1e-3)
+    optimizer_actor = optim.Adam(actor.parameters(), lr=1e-4)
+    optimizer_critic = optim.Adam(critic.parameters(), lr=1e-4)
     ending_condition = lambda result: result['mean'] >= 300.0
     log_dir = os.path.join('runs', current_time + '_' + comment)
     os.mkdir(log_dir)
@@ -65,6 +66,8 @@ def main():
         constants.ending_condition: ending_condition,
         constants.learn_start: 1600,  # training starts after this many transitions
         constants.log_dir: log_dir,
+        constants.use_noise: True,
+        constants.noise_scheduler: Scheduler(1.0, 0.1, 700, warmup_steps=1600),
         constants.summary_writer: writer
     }
     config_file = open(os.path.join(log_dir, "config.json"), "w+")
