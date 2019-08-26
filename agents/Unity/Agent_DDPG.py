@@ -102,7 +102,7 @@ class AgentDDPG(GenericAgent):
         self.critic.train()
         self.actor.train()
         td_error = y.detach() - Qs_a + 1e-5
-        self.replay_buffer.update_priorities(indexes, abs(td_error).detach().cpu().numpy())
+        self.update_priorities(indexes, td_error)
         loss_critic = td_error.pow(2) * is_values.detach()
         self.optimiser_critic.zero_grad()
         loss_critic.mean().backward(retain_graph=False)
@@ -119,6 +119,13 @@ class AgentDDPG(GenericAgent):
         self.writer.add_scalar('loss/critic', loss_critic.mean(), i_episode)
         self.soft_update(self.critic, self.target_critic, self.tau)
         self.soft_update(self.actor, self.target_actor, self.tau)
+
+    # calls = 0
+    def update_priorities(self, indexes, td_error):
+        self.replay_buffer.update_priorities(indexes, abs(td_error).detach().cpu().numpy())
+        # self.calls+=1
+        # if self.calls>100:
+        #     exit()
 
     def soft_update(self, local_model, target_model, tau):
         """Soft update model parameters.

@@ -1,3 +1,5 @@
+# cython: profile=False
+# cython: linetrace=False
 # code modified from openai
 # https://github.com/openai/baselines/blob/master/baselines/deepq/replay_buffer.py
 
@@ -7,7 +9,9 @@ import random
 import numpy as np
 
 
-class SegmentTree(object):
+cdef class SegmentTree(object):
+    cdef int _capacity
+    cdef object _value,_operation
     def __init__(self, capacity, operation, neutral_element):
         """Build a Segment Tree data structure.
         https://en.wikipedia.org/wiki/Segment_tree
@@ -36,7 +40,7 @@ class SegmentTree(object):
         self._value = [neutral_element for _ in range(2 * capacity)]
         self._operation = operation
 
-    def _reduce_helper(self, start, end, node, node_start, node_end):
+    cpdef _reduce_helper(self, start, end, node, node_start, node_end):
         if start == node_start and end == node_end:
             return self._value[node]
         mid = (node_start + node_end) // 2
@@ -51,7 +55,7 @@ class SegmentTree(object):
                     self._reduce_helper(mid + 1, end, 2 * node + 1, mid + 1, node_end)
                 )
 
-    def reduce(self, start=0, end=None):
+    cpdef reduce(self, start=0, end=None):
         """Returns result of applying `self.operation`
         to a contiguous subsequence of the array.
             self.operation(arr[start], operation(arr[start+1], operation(... arr[end])))
@@ -90,7 +94,7 @@ class SegmentTree(object):
         return self._value[self._capacity + idx]
 
 
-class SumSegmentTree(SegmentTree):
+cdef class SumSegmentTree(SegmentTree):
     def __init__(self, capacity):
         super(SumSegmentTree, self).__init__(
             capacity=capacity,
@@ -158,7 +162,7 @@ class ReplayBuffer(object):
     def __len__(self):
         return len(self._storage)
 
-    def add(self, obs_t, action, reward, obs_tp1, done):
+    def add_item(self, obs_t, action, reward, obs_tp1, done):
         data = (obs_t, action, reward, obs_tp1, done)
 
         if self._next_idx >= len(self._storage):

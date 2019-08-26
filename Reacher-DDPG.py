@@ -24,7 +24,7 @@ def main():
     seed = 2
     torch.manual_seed(seed)
     np.random.seed(seed)
-    worker_id = 0
+    worker_id = 3
     print(f'Worker_id={worker_id}')
     env = UnityEnvironment("./environment/Reacher_Linux/Reacher.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
     brain = env.brains[env.brain_names[0]]
@@ -38,8 +38,8 @@ def main():
     actor = Policy_actor(state_size * state_multiplier, action_size).to(device)
     critic = Policy_critic(state_size * state_multiplier + action_size).to(device)
     # actor.test(device)
-    optimizer_actor = optim.Adam(actor.parameters(), lr=1e-3)
-    optimizer_critic = optim.Adam(critic.parameters(), lr=1e-3)
+    optimizer_actor = optim.Adam(actor.parameters(), lr=1e-4)
+    optimizer_critic = optim.Adam(critic.parameters(), lr=1e-4)
     ending_condition = lambda result: result['mean'] >= 300.0
     log_dir = os.path.join('runs', current_time + '_' + comment)
     os.mkdir(log_dir)
@@ -53,14 +53,14 @@ def main():
         constants.n_episodes: 2000,
         constants.batch_size: 512,
         constants.buffer_size: int(1e6),
-        constants.max_t: 200,  # just > 1000
+        constants.max_t: 2000,  # just > 1000
         constants.input_dim: state_size * state_multiplier,
         constants.output_dim: action_size,
         constants.gamma: 0.99,  # discount
         constants.tau: 0.001,  # soft merge
         constants.device: device,
-        constants.train_every: 4,
-        constants.train_n_times: 1,
+        constants.train_every: 20*4,
+        constants.train_n_times: 4,
         constants.n_step_td: 1,
         constants.ending_condition: ending_condition,
         constants.learn_start: 1600,  # training starts after this many transitions
