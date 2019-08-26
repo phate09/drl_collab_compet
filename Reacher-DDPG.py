@@ -52,7 +52,7 @@ def main():
         constants.model_actor: actor,
         constants.model_critic: critic,
         constants.n_episodes: 2000,
-        constants.batch_size: 64,
+        constants.batch_size: 512,
         constants.buffer_size: int(1e6),
         constants.max_t: 2000,  # just > 1000
         constants.input_dim: state_size * state_multiplier,
@@ -61,8 +61,8 @@ def main():
         constants.tau: 0.001,  # soft merge
         constants.device: device,
         constants.train_every: 20*4,
-        constants.train_n_times: 4,
-        constants.n_step_td: 1,
+        constants.train_n_times: 1,
+        constants.n_step_td: 10,
         constants.ending_condition: ending_condition,
         constants.learn_start: 1600,  # training starts after this many transitions
         constants.use_noise: True,
