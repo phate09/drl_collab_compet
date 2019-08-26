@@ -6,15 +6,15 @@ from networks.NoisyLinear import NoisyLinear
 
 
 class Policy_actor(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim,hidden_layer_size=64):
         super().__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.fc1 = NoisyLinear(self.input_dim, 64)
-        self.bn1 = nn.BatchNorm1d(64)
-        self.fc2 = NoisyLinear(64, 64)
-        self.bn2 = nn.BatchNorm1d(64)
-        self.fc3 = NoisyLinear(64, self.output_dim)
+        self.fc1 = NoisyLinear(self.input_dim, hidden_layer_size)
+        self.bn1 = nn.BatchNorm1d(hidden_layer_size)
+        self.fc2 = NoisyLinear(hidden_layer_size, hidden_layer_size)
+        self.bn2 = nn.BatchNorm1d(hidden_layer_size)
+        self.fc3 = NoisyLinear(hidden_layer_size, self.output_dim)
         self.bn3 = nn.BatchNorm1d(self.output_dim)
 
     def forward(self, x):
