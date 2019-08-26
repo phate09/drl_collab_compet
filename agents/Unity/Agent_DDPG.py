@@ -2,7 +2,9 @@ import os
 import pickle
 from collections import deque
 from functools import reduce
-import pyximport; pyximport.install()
+import pyximport;
+
+pyximport.install()
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,6 +15,7 @@ import utility.constants as constants
 from agents.GenericAgent import GenericAgent
 from utility.PrioritisedExperienceReplayBuffer_cython import PrioritizedReplayBuffer
 from utility.Scheduler import Scheduler
+from utility.td_buffer import TDBuffer
 
 
 class AgentDDPG(GenericAgent):
@@ -45,7 +48,7 @@ class AgentDDPG(GenericAgent):
         self.batch_size = config[constants.batch_size]
         self.n_games = 1
         self.beta_start = 0.4
-        self.beta_end = 1
+        self.beta_end = 0.5
         self.train_every = config[constants.train_every]
         self.train_n_times = config[constants.train_n_times]
         self.replay_buffer = PrioritizedReplayBuffer(config[constants.buffer_size], alpha=0.6)
@@ -56,6 +59,7 @@ class AgentDDPG(GenericAgent):
         self.learn_start: int = config[constants.learn_start] if constants.learn_start in config else 0
         self.writer: SummaryWriter = config[constants.summary_writer]
         self.evaluate_every = config[constants.evaluate_every] if constants.evaluate_every in config else 100
+        self.td_buffer = TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=self.replay_buffer, evaluate_fn=self.calculate_td_errors, device=self.device)
         self.config = config
         self.starting_episode = 0  # used for loading checkpoints from save file
 
@@ -95,7 +99,7 @@ class AgentDDPG(GenericAgent):
         target_sprime_target_mu_sprime = torch.cat((next_states, target_mu_sprime), dim=1)
         s_a = torch.cat((states, actions), dim=1)
         s_mu_s = torch.cat((states, mu_s), dim=1)
-        y = rewards + self.gamma * self.target_critic(target_sprime_target_mu_sprime) * (torch.ones_like(dones) - dones)  # sets 0 to the entries which are done
+        y = rewards + self.gamma ** self.n_step_td * self.target_critic(target_sprime_target_mu_sprime) * (torch.ones_like(dones) - dones)  # sets 0 to the entries which are done
         Qs_a = self.critic(s_a)
         Qs_mu_s = self.critic(s_mu_s)
 
@@ -185,11 +189,12 @@ class AgentDDPG(GenericAgent):
                     reward_list.append(rewards)
                     done_list.append(dones)
                     next_state_list.append(next_states)
-                    if len(state_list) >= self.n_step_td:
-                        rewards_n = reduce((lambda x1, x2: x2 + self.gamma * x1), reversed(reward_list[t - self.n_step_td + 1:t + 1]))
-                        td_error = self.calculate_td_errors(state_list[t - self.n_step_td + 1], actions, rewards_n, next_state_list[t])
-                        for i in range(states.size()[0]):
-                            self.replay_buffer.add((state_list[t - self.n_step_td + 1][i], actions[i], rewards_n[i], next_state_list[t][i], dones[i]), abs(td_error[i].item()))
+                    self.td_buffer.add((states, actions, rewards, dones, next_states))
+                    # if len(state_list) >= self.n_step_td:
+                    #     rewards_n = reduce((lambda x1, x2: x2 + x1), reversed(reward_list[t - self.n_step_td + 1:t + 1]))
+                    #     td_error = self.calculate_td_errors(state_list[t - self.n_step_td + 1], actions, rewards_n, next_state_list[t], dones[t])
+                    #     for i in range(states.size()[0]):
+                    #         self.replay_buffer.add((state_list[t - self.n_step_td + 1][i], actions[i], rewards_n[i], next_state_list[t][i], dones[i]), abs(td_error[i].item()))
                 # train the agent
                 if len(self.replay_buffer) > self.batch_size and i_steps > self.learn_start and i_steps != 0 and i_steps % self.train_every == 0:
                     beta = (self.beta_end - self.beta_start) * i_episode / self.n_episodes + self.beta_start
@@ -200,6 +205,7 @@ class AgentDDPG(GenericAgent):
                 score += rewards.mean().item()
                 i_steps += n_agents
                 if dones.any():
+                    self.td_buffer.flush()  # flushes the remaining transitions in the buffer to memory
                     break
             scores_window.append(score)  # save most recent score
             scores.append(score)  # save most recent score
@@ -256,19 +262,20 @@ class AgentDDPG(GenericAgent):
         self.critic.train()
         return scores
 
-    def calculate_td_errors(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, next_states: torch.Tensor) -> torch.Tensor:
-        self.target_actor.eval()
-        self.target_critic.eval()
-        self.actor.eval()
-        self.critic.eval()
+    def calculate_td_errors(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, next_states: torch.Tensor, dones: torch.Tensor) -> torch.Tensor:
+        # self.target_actor.eval()
+        # self.target_critic.eval()
+        # self.actor.eval()
+        # self.critic.eval()
         concat_states = torch.cat([states, actions], dim=1)
         suggested_next_action = self.target_actor(next_states)
         concat_next_states = torch.cat([next_states, suggested_next_action], dim=1)
-        td_errors = rewards + np.power(self.gamma, self.n_step_td) * self.target_critic(concat_next_states) - self.critic(concat_states)
-        self.target_actor.train()
-        self.target_critic.train()
-        self.actor.train()
-        self.critic.train()
+        dones = dones.float()
+        td_errors = rewards + np.power(self.gamma, self.n_step_td) * self.target_critic(concat_next_states) * (torch.ones_like(dones) - dones) - self.critic(concat_states)
+        # self.target_actor.train()
+        # self.target_critic.train()
+        # self.actor.train()
+        # self.critic.train()
         return td_errors  # calculate the td-errors, maybe use GAE
 
     def calculate_discounted_rewards(self, reward_list: list) -> np.ndarray:
