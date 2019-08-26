@@ -23,6 +23,11 @@ class Policy_critic(nn.Module):
         output: torch.Tensor = self.bn3(self.fc3(output))
         return output
 
+    def reset_noise(self):
+        self.fc1.reset_noise()
+        self.fc2.reset_noise()
+        self.fc3.reset_noise()
+
     def test(self, device='cpu'):
         self.eval()
         input = torch.randn(10, self.input_dim, requires_grad=False)

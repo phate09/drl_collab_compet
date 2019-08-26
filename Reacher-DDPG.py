@@ -11,8 +11,8 @@ from unityagents import UnityEnvironment
 
 import utility.constants as constants
 from agents.Unity.Agent_DDPG import AgentDDPG
-from networks.actor_critic.Policy_actor_noisy import Policy_actor
-from networks.actor_critic.Policy_critic_noisy import Policy_critic
+from networks.actor_critic.Policy_actor import Policy_actor
+from networks.actor_critic.Policy_critic import Policy_critic
 
 
 def main():

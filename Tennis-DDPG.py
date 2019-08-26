@@ -51,7 +51,7 @@ def main():
         constants.optimiser_critic: optimizer_critic,
         constants.model_actor: actor,
         constants.model_critic: critic,
-        constants.n_episodes: 2000,
+        constants.n_episodes: 20000,
         constants.batch_size: 512,
         constants.buffer_size: int(1e6),
         constants.max_t: 2000,  # just > 1000

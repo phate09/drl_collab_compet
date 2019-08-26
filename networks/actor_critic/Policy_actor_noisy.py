@@ -24,6 +24,11 @@ class Policy_actor(nn.Module):
         # output: torch.Tensor = output.mul(5.0)
         return output
 
+    def reset_noise(self):
+        self.fc1.reset_noise()
+        self.fc2.reset_noise()
+        self.fc3.reset_noise()
+
     def test(self, device='cpu'):
         # self.eval()
         input = torch.randn(10, self.input_dim, requires_grad=False)
@@ -31,6 +36,7 @@ class Policy_actor(nn.Module):
         torchtest.test_suite(self, F.mse_loss, torch.optim.Adam(self.parameters()), batch=[input, targets], test_vars_change=True, test_inf_vals=True, test_nan_vals=True, device=device)
         print('All tests passed')
 
+
 if __name__ == '__main__':
-    model = Policy_actor(33,4)
+    model = Policy_actor(33, 4)
     model.test()
