@@ -36,8 +36,8 @@ def main():
     state_multiplier = brain.num_stacked_vector_observations
     action_type = brain.vector_action_space_type
     comment = f"DDPG Unity Reacher"
-    actor = Policy_actor(state_size * state_multiplier, action_size).to(device)
-    critic = Policy_critic(state_size * state_multiplier + action_size).to(device)
+    actor = Policy_actor(state_size * state_multiplier, action_size, hidden_layer_size=512).to(device)
+    critic = Policy_critic(state_size * state_multiplier + action_size, hidden_layer_size=512).to(device)
     # actor.test(device)
     optimizer_actor = optim.Adam(actor.parameters(), lr=1e-4)
     optimizer_critic = optim.Adam(critic.parameters(), lr=1e-4)
@@ -60,7 +60,7 @@ def main():
         constants.gamma: 0.99,  # discount
         constants.tau: 0.001,  # soft merge
         constants.device: device,
-        constants.train_every: 20*4,
+        constants.train_every: 20 * 4,
         constants.train_n_times: 1,
         constants.n_step_td: 10,
         constants.ending_condition: ending_condition,

@@ -48,7 +48,7 @@ class AgentDDPG(GenericAgent):
         self.batch_size = config[constants.batch_size]
         self.n_games = 1
         self.beta_start = 0.4
-        self.beta_end = 0.5
+        self.beta_end = 1.0
         self.train_every = config[constants.train_every]
         self.train_n_times = config[constants.train_n_times]
         self.replay_buffer = PrioritizedReplayBuffer(config[constants.buffer_size], alpha=0.6)
@@ -263,19 +263,11 @@ class AgentDDPG(GenericAgent):
         return scores
 
     def calculate_td_errors(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, next_states: torch.Tensor, dones: torch.Tensor) -> torch.Tensor:
-        # self.target_actor.eval()
-        # self.target_critic.eval()
-        # self.actor.eval()
-        # self.critic.eval()
         concat_states = torch.cat([states, actions], dim=1)
         suggested_next_action = self.target_actor(next_states)
         concat_next_states = torch.cat([next_states, suggested_next_action], dim=1)
         dones = dones.float()
         td_errors = rewards + np.power(self.gamma, self.n_step_td) * self.target_critic(concat_next_states) * (torch.ones_like(dones) - dones) - self.critic(concat_states)
-        # self.target_actor.train()
-        # self.target_critic.train()
-        # self.actor.train()
-        # self.critic.train()
         return td_errors  # calculate the td-errors, maybe use GAE
 
     def calculate_discounted_rewards(self, reward_list: list) -> np.ndarray:
