@@ -2,11 +2,9 @@ import os
 import pickle
 from collections import deque
 from functools import reduce
-import pyximport;
-
-pyximport.install()
 import numpy as np
 import torch
+import torch.distributions
 import torch.nn as nn
 import torch.optim.optimizer
 from tensorboardX import SummaryWriter
@@ -16,6 +14,7 @@ from agents.GenericAgent import GenericAgent
 from utility.PrioritisedExperienceReplayBuffer_cython import PrioritizedReplayBuffer
 from utility.Scheduler import Scheduler
 from utility.td_buffer import TDBuffer
+import torch.nn.functional as F
 
 
 class AgentTD3(GenericAgent):
@@ -39,13 +38,15 @@ class AgentTD3(GenericAgent):
         self.tau: float = config[constants.tau]
         self.device = config[constants.device]
         self.actor: torch.nn.Module = config[constants.model_actor]
-        self.critic: torch.nn.Module = config[constants.model_critic]
+        self.critic1: torch.nn.Module = config[constants.model_critic]
         self.target_actor: torch.nn.Module = pickle.loads(pickle.dumps(self.actor))  # clones the actor
-        self.target_critic: torch.nn.Module = pickle.loads(pickle.dumps(self.critic))  # clones the critic
+        self.target_critic: torch.nn.Module = pickle.loads(pickle.dumps(self.critic1))  # clones the critic
         self.optimiser_actor: torch.optim.optimizer.Optimizer = config[constants.optimiser_actor]
         self.optimiser_critic: torch.optim.optimizer.Optimizer = config[constants.optimiser_critic]
         self.ending_condition = config[constants.ending_condition]
         self.batch_size = config[constants.batch_size]
+        self.action_size = config[constants.action_size]
+        self.n_agents = config[constants.n_agents]
         self.n_games = 1
         self.beta_start = 0.4
         self.beta_end = 1.0
@@ -62,6 +63,8 @@ class AgentTD3(GenericAgent):
         self.td_buffer = TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=self.replay_buffer, evaluate_fn=self.calculate_td_errors, device=self.device)
         self.config = config
         self.starting_episode = 0  # used for loading checkpoints from save file
+        self.max_action = 1
+        self.d = 2
 
     # self.t_update_target_step = 0
     def required_properties(self):
@@ -79,7 +82,7 @@ class AgentTD3(GenericAgent):
                 constants.ending_condition,
                 constants.summary_writer]
 
-    def learn(self, experiences, indexes, is_values, i_episode: int):
+    def learn(self, i_episode: int):
         """Update value parameters using given batch of experience tuples.
 
         Params
@@ -87,42 +90,54 @@ class AgentTD3(GenericAgent):
             experiences (Tuple[torch.Variable]): tuple of (s, a, r, s', done) tuples
             gamma (float): discount factor
         """
-        states, actions, rewards, next_states, dones = zip(*experiences)
-        states = torch.stack(states)
-        actions = torch.stack(actions)
-        rewards = torch.stack(rewards)
-        next_states = torch.stack(next_states)
-        is_values = torch.from_numpy(is_values).float().to(self.device)
-        dones = torch.stack(dones).float()
-        target_mu_sprime = self.target_actor(next_states)
-        mu_s = self.actor(states)
-        target_sprime_target_mu_sprime = torch.cat((next_states, target_mu_sprime), dim=1)
-        s_a = torch.cat((states, actions), dim=1)
-        s_mu_s = torch.cat((states, mu_s), dim=1)
-        y = rewards + self.gamma ** self.n_step_td * self.target_critic(target_sprime_target_mu_sprime) * (torch.ones_like(dones) - dones)  # sets 0 to the entries which are done
-        Qs_a = self.critic(s_a)
-        Qs_mu_s = self.critic(s_mu_s)
+        for i in range(self.train_n_times):
+            beta = (self.beta_end - self.beta_start) * i_episode / self.n_episodes + self.beta_start
+            experiences, is_values, indexes = self.replay_buffer.sample(self.batch_size, beta=beta)
+            states, actions, rewards, next_states, dones = zip(*experiences)
+            states = torch.stack(states)
+            actions = torch.stack(actions)
+            rewards = torch.stack(rewards)
+            next_states = torch.stack(next_states)
+            is_values = torch.from_numpy(is_values).float().to(self.device)
+            dones = 1 - torch.stack(dones).float()
+            policy_noise = 0.2  #
+            noise_clip = 0.5
+            # Select action according to policy and add clipped noise
+            noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * policy_noise)
+            # torch.FloatTensor(u).data.normal_(0, policy_noise).to(device)
+            noise = noise.clamp(-noise_clip, noise_clip)
 
-        self.critic.train()
-        self.actor.train()
-        td_error = y.detach() - Qs_a + 1e-5
-        self.update_priorities(indexes, td_error)
-        loss_critic = td_error.pow(2) * is_values.detach()
-        self.optimiser_critic.zero_grad()
-        loss_critic.mean().backward(retain_graph=False)
-        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1)
-        self.optimiser_critic.step()
-        loss_actor = -Qs_mu_s  # gradient ascent # mu_s *
-        self.optimiser_actor.zero_grad()
-        loss_actor.mean().backward(retain_graph=False)
-        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1)
-        self.optimiser_actor.step()
-        # self.critic.eval()
-        # self.actor.eval()
-        self.writer.add_scalar('loss/actor', loss_critic.mean(), i_episode)
-        self.writer.add_scalar('loss/critic', loss_critic.mean(), i_episode)
-        self.soft_update(self.critic, self.target_critic, self.tau)
-        self.soft_update(self.actor, self.target_actor, self.tau)
+            target_mu_sprime = (self.target_actor(next_states) + noise).clamp(-self.max_action, self.max_action)
+            mu_s = self.actor(states)
+            target_sprime_target_mu_sprime = torch.cat((next_states, target_mu_sprime), dim=1)
+            s_a = torch.cat((states, actions), dim=1)
+            s_mu_s = torch.cat((states, mu_s), dim=1)
+            target_Q = torch.min(self.target_critic(target_sprime_target_mu_sprime))  # takes the minimum of the two critics
+            y = rewards + (self.gamma ** self.n_step_td * target_Q * dones)  # sets 0 to the entries which are done
+            Qs_a1, Qs_a2 = self.critic1(s_a)
+            Qs_mu_s1, Qs_mu_s2 = self.critic1(s_mu_s)
+
+            self.critic1.train()
+            self.actor.train()
+            td_error = min(y.detach() - Qs_a1, y.detach() - Qs_a2) + 1e-5
+            self.update_priorities(indexes, abs(td_error))
+            loss_critic = F.mse_loss(y.detach(), Qs_a1) + F.mse_loss(y.detach(), Qs_a2) * is_values.detach()
+            self.optimiser_critic.zero_grad()
+            loss_critic.mean().backward()
+            torch.nn.utils.clip_grad_norm_(self.critic1.parameters(), 1)
+            self.optimiser_critic.step()
+
+            if i % self.d == 0:
+                loss_actor = -Qs_mu_s1  # gradient ascent , use only the first of the critic
+                self.optimiser_actor.zero_grad()
+                loss_actor.mean().backward()
+                torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1)
+                self.optimiser_actor.step()
+
+                self.writer.add_scalar('loss/actor', loss_critic.mean(), i_episode)
+                self.writer.add_scalar('loss/critic', loss_critic.mean(), i_episode)
+                self.soft_update(self.critic1, self.target_critic, self.tau)
+                self.soft_update(self.actor, self.target_actor, self.tau)
 
     # calls = 0
     def update_priorities(self, indexes, td_error):
@@ -177,9 +192,14 @@ class AgentTD3(GenericAgent):
             noise_magnitude = 0.2 if self.noise_scheduler is None else self.noise_scheduler.get(i_episode)
             for t in range(self.max_t):
                 with torch.no_grad():
-                    actions: torch.Tensor = self.actor(states)
-                    noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude) if self.use_noise else 0  # adds exploratory noise
-                    actions = torch.clamp(actions + noise, -1, 1)  # clips the action to the allowed boundaries
+                    if i_steps == self.learn_start:
+                        print("Starting to learn")
+                    if i_steps < self.learn_start:
+                        actions = (torch.rand(self.n_agents, self.action_size) * 2).to(self.device) - self.max_action
+                    else:
+                        actions: torch.Tensor = self.actor(states)
+                        noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude) if self.use_noise else 0  # adds exploratory noise
+                        actions = torch.clamp(actions + noise, -self.max_action, self.max_action)  # clips the action to the allowed boundaries
                     env_info = env.step(actions.cpu().detach().numpy())[brain_name]  # send the action to the environment
                     next_states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=self.device)  # get the next state
                     rewards = torch.tensor(env_info.rewards, dtype=torch.float, device=self.device).unsqueeze(dim=1)  # get the reward
@@ -190,17 +210,9 @@ class AgentTD3(GenericAgent):
                     done_list.append(dones)
                     next_state_list.append(next_states)
                     self.td_buffer.add((states, actions, rewards, dones, next_states))
-                    # if len(state_list) >= self.n_step_td:
-                    #     rewards_n = reduce((lambda x1, x2: x2 + x1), reversed(reward_list[t - self.n_step_td + 1:t + 1]))
-                    #     td_error = self.calculate_td_errors(state_list[t - self.n_step_td + 1], actions, rewards_n, next_state_list[t], dones[t])
-                    #     for i in range(states.size()[0]):
-                    #         self.replay_buffer.add((state_list[t - self.n_step_td + 1][i], actions[i], rewards_n[i], next_state_list[t][i], dones[i]), abs(td_error[i].item()))
                 # train the agent
                 if len(self.replay_buffer) > self.batch_size and i_steps > self.learn_start and i_steps != 0 and i_steps % self.train_every == 0:
-                    beta = (self.beta_end - self.beta_start) * i_episode / self.n_episodes + self.beta_start
-                    for i in range(self.train_n_times):
-                        experiences, is_values, indexes = self.replay_buffer.sample(self.batch_size, beta=beta)
-                        self.learn(experiences=experiences, indexes=indexes, is_values=is_values, i_episode=i_episode)
+                    self.learn(i_episode=i_episode)
                 states = next_states
                 score += rewards.mean().item()
                 i_steps += n_agents
@@ -230,14 +242,14 @@ class AgentTD3(GenericAgent):
         scores_window = deque(maxlen=100)  # last 100 scores
         i_steps = 0
         self.actor.eval()
-        self.critic.eval()
+        self.critic1.eval()
         for i_episode in range(n_episodes):
             env_info = env.reset(train_mode=train_mode)[brain_name]  # reset the environment
             n_agents = len(env_info.agents)
             states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=self.device)  # get the current state
             score = 0
             self.actor.eval()
-            self.critic.eval()
+            self.critic1.eval()
             for t in range(self.max_t):
                 with torch.no_grad():
                     actions: torch.Tensor = self.actor(states)
@@ -259,15 +271,18 @@ class AgentTD3(GenericAgent):
             if (i_episode + 1) % 100 == 0:
                 print(f'\rEval Episode {i_episode + 1}\tAverage Score: {np.mean(scores_window):.2f} ')
         self.actor.train()
-        self.critic.train()
+        self.critic1.train()
         return scores
 
     def calculate_td_errors(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, next_states: torch.Tensor, dones: torch.Tensor) -> torch.Tensor:
         concat_states = torch.cat([states, actions], dim=1)
         suggested_next_action = self.target_actor(next_states)
         concat_next_states = torch.cat([next_states, suggested_next_action], dim=1)
-        dones = dones.float()
-        td_errors = rewards + np.power(self.gamma, self.n_step_td) * self.target_critic(concat_next_states) * (torch.ones_like(dones) - dones) - self.critic(concat_states)
+        dones = (1 - dones).float()
+        target_Q1, target_Q2 = self.target_critic(concat_next_states)
+        Q1, Q2 = self.critic1(concat_states)
+        y = rewards + np.power(self.gamma, self.n_step_td) * torch.min(target_Q1, target_Q2) * dones
+        td_errors = torch.min(y - Q1, y - Q2)
         return td_errors  # calculate the td-errors, maybe use GAE
 
     def calculate_discounted_rewards(self, reward_list: list) -> np.ndarray:
@@ -286,7 +301,7 @@ class AgentTD3(GenericAgent):
             "episode": episode,
             "actor": self.actor.state_dict(),
             "target_actor": self.target_actor.state_dict(),
-            "critic": self.critic.state_dict(),
+            "critic": self.critic1.state_dict(),
             "target_critic": self.target_critic.state_dict(),
             "optimiser_actor": self.optimiser_actor.state_dict(),
             "optimiser_critic": self.optimiser_critic.state_dict(),
@@ -296,7 +311,7 @@ class AgentTD3(GenericAgent):
         checkpoint = torch.load(path)
         self.actor.load_state_dict(checkpoint["actor"])
         self.target_actor.load_state_dict(checkpoint["target_actor"])
-        self.critic.load_state_dict(checkpoint["critic"])
+        self.critic1.load_state_dict(checkpoint["critic"])
         self.target_critic.load_state_dict(checkpoint["target_critic"])
         self.optimiser_actor.load_state_dict(checkpoint["optimiser_actor"])
         self.optimiser_critic.load_state_dict(checkpoint["optimiser_critic"])

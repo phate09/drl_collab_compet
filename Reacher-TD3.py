@@ -10,9 +10,9 @@ from tensorboardX import SummaryWriter
 from unityagents import UnityEnvironment
 
 import utility.constants as constants
-from agents.Unity.Agent_DDPG import AgentDDPG
+from agents.Unity.Agent_TD3 import AgentTD3
 from networks.actor_critic.Policy_actor import Policy_actor
-from networks.actor_critic.Policy_critic import Policy_critic
+from networks.actor_critic.Policy_critic_twin import Policy_critic
 from utility.Scheduler import Scheduler
 
 
@@ -35,9 +35,9 @@ def main():
     state_size = brain.vector_observation_space_size
     state_multiplier = brain.num_stacked_vector_observations
     action_type = brain.vector_action_space_type
-    comment = f"DDPG Unity Reacher"
-    actor = Policy_actor(state_size * state_multiplier, action_size, hidden_layer_size=512).to(device)
-    critic = Policy_critic(state_size * state_multiplier + action_size, hidden_layer_size=512).to(device)
+    comment = f"TD3 Unity Reacher"
+    actor = Policy_actor(state_size * state_multiplier, action_size, hidden_layer_size=200).to(device)
+    critic = Policy_critic(state_size * state_multiplier + action_size, hidden_layer_size=200).to(device)
     # actor.test(device)
     optimizer_actor = optim.Adam(actor.parameters(), lr=1e-4)
     optimizer_critic = optim.Adam(critic.parameters(), lr=1e-4)
@@ -52,28 +52,30 @@ def main():
         constants.model_actor: actor,
         constants.model_critic: critic,
         constants.n_episodes: 4000,
-        constants.batch_size: 512,
+        constants.batch_size: 100,
         constants.buffer_size: int(1e6),
-        constants.max_t: 200,  # just > 1000
+        constants.max_t: 20000,  # just > 1000
         constants.input_dim: state_size * state_multiplier,
         constants.output_dim: action_size,
         constants.gamma: 0.99,  # discount
-        constants.tau: 0.001,  # soft merge
+        constants.tau: 0.005,  # soft merge
         constants.device: device,
-        constants.train_every: 20*4,
+        constants.train_every: 20 * 4,
         constants.train_n_times: 1,
         constants.n_step_td: 10,
         constants.ending_condition: ending_condition,
-        constants.learn_start: 100000,  # training starts after this many transitions
+        constants.learn_start: 1600,  # training starts after this many transitions
         constants.use_noise: True,
-        constants.noise_scheduler: Scheduler(1.0, 0.1, 20000, warmup_steps=100000),
+        constants.noise_scheduler: Scheduler(1.0, 0.1, 20000, warmup_steps=1600),
+        constants.n_agents: len(env_info.agents),
+        constants.action_size: action_size,
         constants.log_dir: log_dir,
         constants.summary_writer: writer
     }
     config_file = open(os.path.join(log_dir, "config.json"), "w+")
     config_file.write(json.dumps(json.loads(jsonpickle.encode(config, unpicklable=False, max_depth=1)), indent=4, sort_keys=True))
     config_file.close()
-    agent = AgentDDPG(config)
+    agent = AgentTD3(config)
     # agent.save("/home/edoardo/PycharmProjects/ProximalPolicyOptimisation/runs/Aug13_16-46-32_DDPG Unity Reacher multi/checkpoint_50.pth",1)
     # agent.load("/home/edoardo/PycharmProjects/ProximalPolicyOptimisation/runs/Aug13_16-46-32_DDPG Unity Reacher multi/checkpoint_50.pth")
     agent.train(env, ending_condition)
