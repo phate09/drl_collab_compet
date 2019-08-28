@@ -112,14 +112,15 @@ class AgentTD3(GenericAgent):
             target_sprime_target_mu_sprime = torch.cat((next_states, target_mu_sprime), dim=1)
             s_a = torch.cat((states, actions), dim=1)
             s_mu_s = torch.cat((states, mu_s), dim=1)
-            target_Q = torch.min(self.target_critic(target_sprime_target_mu_sprime))  # takes the minimum of the two critics
+            target_Q1, target_Q2 = self.target_critic(target_sprime_target_mu_sprime)
+            target_Q = torch.min(target_Q1, target_Q2)  # takes the minimum of the two critics
             y = rewards + (self.gamma ** self.n_step_td * target_Q * dones)  # sets 0 to the entries which are done
             Qs_a1, Qs_a2 = self.critic1(s_a)
             Qs_mu_s1, Qs_mu_s2 = self.critic1(s_mu_s)
 
             self.critic1.train()
             self.actor.train()
-            td_error = min(y.detach() - Qs_a1, y.detach() - Qs_a2) + 1e-5
+            td_error = torch.min(y.detach() - Qs_a1, y.detach() - Qs_a2) + 1e-5
             self.update_priorities(indexes, abs(td_error))
             loss_critic = F.mse_loss(y.detach(), Qs_a1) + F.mse_loss(y.detach(), Qs_a2) * is_values.detach()
             self.optimiser_critic.zero_grad()
