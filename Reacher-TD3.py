@@ -61,12 +61,12 @@ def main():
         constants.tau: 0.005,  # soft merge
         constants.device: device,
         constants.train_every: 20 * 4,
-        constants.train_n_times: 1,
+        constants.train_n_times: 2,
         constants.n_step_td: 10,
         constants.ending_condition: ending_condition,
-        constants.learn_start: 1600,  # training starts after this many transitions
+        constants.learn_start: 160,  # training starts after this many transitions
         constants.use_noise: True,
-        constants.noise_scheduler: Scheduler(1.0, 0.1, 20000, warmup_steps=1600),
+        constants.noise_scheduler: Scheduler(1.0, 0.1, 20000, warmup_steps=160),
         constants.n_agents: len(env_info.agents),
         constants.action_size: action_size,
         constants.log_dir: log_dir,
@@ -77,7 +77,7 @@ def main():
     config_file.close()
     agent = AgentTD3(config)
     # agent.save("/home/edoardo/PycharmProjects/ProximalPolicyOptimisation/runs/Aug13_16-46-32_DDPG Unity Reacher multi/checkpoint_50.pth",1)
-    # agent.load("/home/edoardo/PycharmProjects/ProximalPolicyOptimisation/runs/Aug13_16-46-32_DDPG Unity Reacher multi/checkpoint_50.pth")
+    agent.load("./runs/Aug28_09-23-24_TD3 Unity Reacher/checkpoint_290.pth")
     agent.train(env, ending_condition)
     print("Finished.")
 

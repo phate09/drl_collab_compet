@@ -47,7 +47,6 @@ class AgentTD3(GenericAgent):
         self.batch_size = config[constants.batch_size]
         self.action_size = config[constants.action_size]
         self.n_agents = config[constants.n_agents]
-        self.n_games = 1
         self.beta_start = 0.4
         self.beta_end = 1.0
         self.train_every = config[constants.train_every]
