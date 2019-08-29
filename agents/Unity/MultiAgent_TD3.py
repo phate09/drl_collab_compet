@@ -119,6 +119,8 @@ class MultiAgentTD3(GenericAgent):
         brain_name = env.brain_names[0]
         scores = []  # list containing scores from each episode
         scores_window = deque(maxlen=100)  # last 100 scores
+        scores_max_window = deque(maxlen=100)  # last 100 scores
+        scores_min_window = deque(maxlen=100)  # last 100 scores
         i_steps = 0
         for i_episode in range(self.starting_episode, self.n_episodes):
             # todo reset the noise
@@ -131,6 +133,8 @@ class MultiAgentTD3(GenericAgent):
             # Reset the memory of the agent
             states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=self.device)  # get the current state
             score = 0
+            score_max = 0
+            score_min = 0
             noise_magnitude = 0.2 if self.noise_scheduler is None else self.noise_scheduler.get(i_steps)
             for t in range(self.max_t):
                 with torch.no_grad():
@@ -160,6 +164,8 @@ class MultiAgentTD3(GenericAgent):
                 if len(self.replay_buffers[t % self.n_agents]) > self.batch_size and i_steps > self.learn_start and i_steps != 0 and i_steps % self.train_every == 0:
                     self.learn(i_episode=i_episode)
                 states = next_states
+                score_max += rewards.max().item()
+                score_min += rewards.min().item()
                 score += rewards.mean().item()
                 i_steps += self.n_agents
                 if dones.any():
@@ -169,9 +175,13 @@ class MultiAgentTD3(GenericAgent):
                 # if np.any(env_info.global_done):
                 #     break
             scores_window.append(score)  # save most recent score
+            scores_max_window.append(score_max)  # save most recent score
+            scores_min_window.append(score_min)  # save most recent score
             scores.append(score)  # save most recent score
             self.writer.add_scalar('data/score', score, i_episode)
             self.writer.add_scalar('data/score_average', np.mean(scores_window), i_episode)
+            self.writer.add_scalar('data/score_max_average', np.mean(scores_max_window), i_episode)
+            self.writer.add_scalar('data/score_min_average', np.mean(scores_min_window), i_episode)
             self.writer.flush()
             print(f'\rEpisode {i_episode + 1}\tAverage Score: {np.mean(scores_window):.2f} ', end="")
             if (i_episode + 1) % 100 == 0:
