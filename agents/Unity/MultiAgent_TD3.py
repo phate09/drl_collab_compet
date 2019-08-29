@@ -12,6 +12,7 @@ from tensorboardX import SummaryWriter
 
 import utility.constants as constants
 from agents.GenericAgent import GenericAgent
+from utility.ReplayMemory import ExperienceReplayMemory
 from utility.PrioritisedExperienceReplayBuffer_cython import PrioritizedReplayBuffer
 from utility.Scheduler import Scheduler
 from utility.td_buffer_TD3 import TDBuffer
@@ -57,6 +58,7 @@ class MultiAgentTD3(GenericAgent):
         self.starting_episode = 0  # used for loading checkpoints from save file
         self.max_action = 1
         self.d = 2
+        self.use_priority = config.use_priority
         self.actors = []
         self.critics = []
         self.target_actors = []
@@ -76,10 +78,12 @@ class MultiAgentTD3(GenericAgent):
             self.target_critics.append(target_critic)
             self.optimiser_actors.append(agent_config.optimiser_actor)
             self.optimiser_critics.append(agent_config.optimiser_critic)
-            buffer = PrioritizedReplayBuffer(config.buffer_size, alpha=0.6)
+            if config.use_priority:
+                buffer = PrioritizedReplayBuffer(config.buffer_size, alpha=0.6)
+            else:
+                buffer = ExperienceReplayMemory(config.buffer_size)
             self.replay_buffers.append(buffer)
-            self.td_buffers.append(TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=buffer,critic=agent_config.critic,target_critic=target_critic,target_actor=target_actor, device=self.device))
-
+            self.td_buffers.append(TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=buffer, critic=agent_config.critic, target_critic=target_critic, target_actor=target_actor, device=self.device))
 
     # self.t_update_target_step = 0
     def required_properties(self):
@@ -117,44 +121,53 @@ class MultiAgentTD3(GenericAgent):
         scores_window = deque(maxlen=100)  # last 100 scores
         i_steps = 0
         for i_episode in range(self.starting_episode, self.n_episodes):
+            # todo reset the noise
             if i_episode != 0 and i_episode % self.evaluate_every == 0:
                 print("")
                 eval_scores: list = self.evaluate(env, n_episodes=10, train_mode=True)
                 print("")
                 self.writer.add_scalar('eval/score_average', np.mean(eval_scores), i_episode)
             env_info = env.reset(train_mode=True)[brain_name]  # reset the environment
-            n_agents = len(env_info.agents)
             # Reset the memory of the agent
             states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=self.device)  # get the current state
             score = 0
-            noise_magnitude = 0.2 if self.noise_scheduler is None else self.noise_scheduler.get(i_episode)
+            noise_magnitude = 0.2 if self.noise_scheduler is None else self.noise_scheduler.get(i_steps)
             for t in range(self.max_t):
                 with torch.no_grad():
                     if i_steps == self.learn_start:
                         print("Starting to learn")
                     if i_steps < self.learn_start:
-                        actions = (torch.rand(self.n_agents, self.action_size) * 2).to(self.device) - self.max_action
+                        actions = np.random.randn(self.n_agents, self.action_size)  # select an action (for each agent)
+                        actions = torch.tensor(np.clip(actions, -self.max_action, self.max_action), dtype=torch.float, device=self.device)  # all actions between -1 and 1
                     else:
-                        # if t % 2==0:
-                        actor = self.actors[t % self.n_agents]  # pick player
-                        actions: torch.Tensor = actor(states)
+                        actions = []
+                        for i in range(self.n_agents):
+                            self.actors[i].eval()
+                            actions.append(self.actors[i](states[i].unsqueeze(dim=0)).squeeze())
+                            self.actors[i].train()
+                        actions = torch.stack(actions, dim=0)
+                        # actions: torch.Tensor = actor(states)
                         noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude) if self.use_noise else 0  # adds exploratory noise
                         actions = torch.clamp(actions + noise, -self.max_action, self.max_action)  # clips the action to the allowed boundaries
+                    # todo actions should be a list of n_agent elements containing 2 values each
                     env_info = env.step(actions.cpu().detach().numpy())[brain_name]  # send the action to the environment
                     next_states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=self.device)  # get the next state
                     rewards = torch.tensor(env_info.rewards, dtype=torch.float, device=self.device).unsqueeze(dim=1)  # get the reward
                     dones = torch.tensor(env_info.local_done, dtype=torch.uint8, device=self.device).unsqueeze(dim=1)  # see if episode has finished
-                    self.td_buffers[t % self.n_agents].add((states, actions, rewards, dones, next_states))
+                    for i in range(self.n_agents):
+                        self.td_buffers[i].add((states[i], actions[i], rewards[i], dones[i], next_states[i]))
                 # train the agent
                 if len(self.replay_buffers[t % self.n_agents]) > self.batch_size and i_steps > self.learn_start and i_steps != 0 and i_steps % self.train_every == 0:
                     self.learn(i_episode=i_episode)
                 states = next_states
                 score += rewards.mean().item()
-                i_steps += n_agents
+                i_steps += self.n_agents
                 if dones.any():
                     for buffer in self.td_buffers:
                         buffer.flush()  # flushes the remaining transitions in the buffer to memory
-                    break
+                    # break
+                # if np.any(env_info.global_done):
+                #     break
             scores_window.append(score)  # save most recent score
             scores.append(score)  # save most recent score
             self.writer.add_scalar('data/score', score, i_episode)
@@ -212,7 +225,8 @@ class MultiAgentTD3(GenericAgent):
                 self.critics[agent_i].train()
                 self.actors[agent_i].train()
                 td_error = torch.min(y.detach() - Qs_a1, y.detach() - Qs_a2) + 1e-5
-                self.replay_buffers[agent_i].update_priorities(indexes, abs(td_error.detach().cpu().numpy()))
+                if self.use_priority:
+                    self.replay_buffers[agent_i].update_priorities(indexes, abs(td_error.detach().cpu().numpy()))
                 loss_critic = F.mse_loss(y.detach(), Qs_a1) + F.mse_loss(y.detach(), Qs_a2) * is_values.detach()
                 self.optimiser_critics[agent_i].zero_grad()
                 loss_critic.mean().backward()
@@ -268,8 +282,6 @@ class MultiAgentTD3(GenericAgent):
             self.actors[i].train()
             self.critics[i].train()
         return scores
-
-
 
     def calculate_discounted_rewards(self, reward_list: list) -> np.ndarray:
         rewards = reward_list.copy()

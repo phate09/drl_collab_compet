@@ -26,7 +26,7 @@ def main():
     seed = 2
     torch.manual_seed(seed)
     np.random.seed(seed)
-    worker_id = 5
+    worker_id = 1
     print(f'Worker_id={worker_id}')
     env = UnityEnvironment("./environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
     brain = env.brains[env.brain_names[0]]
@@ -56,20 +56,21 @@ def main():
     config.n_episodes = 4000
     config.batch_size = 100
     config.buffer_size = int(1e6)
-    config.max_t = 20000  # just > 1000
+    config.max_t = 2000  # just > 1000
     config.input_dim = state_size * state_multiplier
     config.output_dim = action_size
     config.gamma = 0.99  # discount
     config.tau = 0.005  # soft merge
     config.device = device
-    config.train_every = 20 * 4
+    config.train_every = 50
     config.train_n_times = 2
     config.n_step_td = 1
     config.ending_condition = ending_condition
-    config.learn_start = 160  # training starts after this many transitions
+    config.learn_start = config.max_t  # training starts after this many transitions
     config.evaluate_every = 100
     config.use_noise = True
-    config.noise_scheduler = Scheduler(1.0, 0.1, 20000, warmup_steps=160)
+    config.use_priority = False
+    config.noise_scheduler = Scheduler(1.0, 0.1, config.max_t*1000, warmup_steps=config.max_t)
     # config.n_agents = len(env_info.agents)
     config.action_size = action_size
     config.log_dir = log_dir

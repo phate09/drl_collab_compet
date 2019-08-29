@@ -36,8 +36,8 @@ class TDBuffer:
             states, actions, rewards, dones, next_states = item
             total_reward += rewards  # self.gamma ** i *
         td_error = self.calculate_td_errors(initial_state, initial_action, total_reward, next_states, dones)  # total_reward + self.gamma ** len(self.buffer) * self.evaluate_fn(next_states) - self.evaluate_fn(initial_state, initial_action)
-        for i in range(states.size()[0]):
-            self.memory.add((initial_state[i], initial_action[i], total_reward[i], next_states[i], dones[i]), abs(td_error[i].item()))
+        # for i in range(states.size()[0]):
+        self.memory.add((initial_state, initial_action, total_reward, next_states, dones), abs(td_error.item()))
 
     def flush(self):
         """When the episode is finished empties the buffer saving it to memory"""
@@ -46,12 +46,14 @@ class TDBuffer:
             self._push_to_memory()
 
     def calculate_td_errors(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, next_states: torch.Tensor, dones: torch.Tensor) -> torch.Tensor:
-        concat_states = torch.cat([states, actions], dim=1)
-        suggested_next_action = self.target_actor(next_states)
-        concat_next_states = torch.cat([next_states, suggested_next_action], dim=1)
+        self.critic.eval()
+        concat_states = torch.cat([states, actions], dim=0)
+        suggested_next_action = self.target_actor(next_states.unsqueeze(dim=0))
+        concat_next_states = torch.cat([next_states, suggested_next_action.squeeze(dim=0)], dim=0)
         dones = (1 - dones).float()
-        target_Q1, target_Q2 = self.target_critic(concat_next_states)
-        Q1, Q2 = self.critic(concat_states)
+        target_Q1, target_Q2 = self.target_critic(concat_next_states.unsqueeze(dim=0))
+        Q1, Q2 = self.critic(concat_states.unsqueeze(dim=0))
         y = rewards + np.power(self.gamma, self.n_steps) * torch.min(target_Q1, target_Q2) * dones
         td_errors = torch.min(y - Q1, y - Q2)
+        self.critic.train()
         return td_errors  # calculate the td-errors, maybe use GAE
