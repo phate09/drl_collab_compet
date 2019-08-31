@@ -10,16 +10,16 @@ class Policy_critic(nn.Module):
         self.output_dim = 1  # value network
         self.input_dim = input_dim
         self.fc1 = nn.Linear(self.input_dim, hidden_layer_size)
-        self.bn1 = nn.BatchNorm1d(hidden_layer_size)
+        # self.bn1 = nn.BatchNorm1d(hidden_layer_size)
         self.fc2 = nn.Linear(hidden_layer_size, hidden_layer_size)
-        self.bn2 = nn.BatchNorm1d(hidden_layer_size)
+        # self.bn2 = nn.BatchNorm1d(hidden_layer_size)
         self.fc3 = nn.Linear(hidden_layer_size, self.output_dim)
-        self.bn3 = nn.BatchNorm1d(self.output_dim)
+        # self.bn3 = nn.BatchNorm1d(self.output_dim)
 
     def forward(self, x):
-        output: torch.Tensor = F.relu(self.bn1(self.fc1(x)))  # self.bn1(
-        output: torch.Tensor = F.relu(self.bn2(self.fc2(output)))  # self.bn2(
-        output: torch.Tensor = self.bn3(self.fc3(output))
+        output: torch.Tensor = F.leaky_relu(self.fc1(x))
+        output: torch.Tensor = F.leaky_relu(self.fc2(output))
+        output: torch.Tensor = self.fc3(output)
         return output
 
     def test(self, device='cpu'):

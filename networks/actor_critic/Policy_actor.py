@@ -10,16 +10,16 @@ class Policy_actor(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.fc1 = nn.Linear(self.input_dim, hidden_layer_size)
-        self.bn1 = nn.BatchNorm1d(hidden_layer_size)
+        # self.bn1 = nn.BatchNorm1d(hidden_layer_size)
         self.fc2 = nn.Linear(hidden_layer_size, hidden_layer_size)
-        self.bn2 = nn.BatchNorm1d(hidden_layer_size)
+        # self.bn2 = nn.BatchNorm1d(hidden_layer_size)
         self.fc3 = nn.Linear(hidden_layer_size, self.output_dim)
-        self.bn3 = nn.BatchNorm1d(self.output_dim)
+        # self.bn3 = nn.BatchNorm1d(self.output_dim)
 
     def forward(self, x):
-        output: torch.Tensor = F.relu(self.bn1(self.fc1(x)))
-        output: torch.Tensor = F.relu(self.bn2(self.fc2(output)))
-        output: torch.Tensor = torch.tanh(self.bn3(self.fc3(output)))
+        output: torch.Tensor = F.leaky_relu(self.fc1(x))
+        output: torch.Tensor = F.leaky_relu(self.fc2(output))
+        output: torch.Tensor = torch.tanh(self.fc3(output))
         # output: torch.Tensor = output.mul(5.0)
         return output
 
