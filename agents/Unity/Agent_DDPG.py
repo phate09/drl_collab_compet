@@ -210,6 +210,7 @@ class AgentDDPG(GenericAgent):
             scores_window.append(score)  # save most recent score
             scores.append(score)  # save most recent score
             self.writer.add_scalar('data/score', score, i_episode)
+            self.writer.add_scalar('parameters/noise_magnitude', score, noise_magnitude)
             self.writer.add_scalar('data/score_average', np.mean(scores_window), i_episode)
             self.writer.flush()
             print(f'\rEpisode {i_episode + 1}\tAverage Score: {np.mean(scores_window):.2f} ', end="")
