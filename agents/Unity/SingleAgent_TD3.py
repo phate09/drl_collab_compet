@@ -14,6 +14,7 @@ from agents.GenericAgent import GenericAgent
 from utility.PrioritisedExperienceReplayBuffer_cython import PrioritizedReplayBuffer
 from utility.ReplayMemory import ExperienceReplayMemory
 from utility.Scheduler import Scheduler
+from utility.noise import OUNoise
 from utility.td_buffer import TDBuffer
 import torch.nn.functional as F
 from munch import DefaultMunch
@@ -66,6 +67,7 @@ class AgentTD3(GenericAgent):
         self.tag = config.tag if config.tag is not None else ""
         self.d = 2  # trottle updates of the actor compared to the critic
         self.global_step = 0  # used internally for loading checkpoints from save file
+        self.noise = OUNoise(self.action_size, config.seed)
 
     def buffer_fn(self):
         if self.use_priority:
@@ -110,7 +112,11 @@ class AgentTD3(GenericAgent):
             self.actor.eval()
             with torch.no_grad():
                 actions: torch.Tensor = self.actor(states)
-                noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude)  # adds exploratory noise
+                # noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude)  # adds exploratory noise
+                if noise_magnitude != 0:
+                    noise = torch.tensor(self.noise.sample(), dtype=torch.float, device=self.device)
+                else:
+                    noise = torch.zeros_like(actions)
                 actions = torch.clamp(actions + noise, -self.max_action, self.max_action).to(self.device)  # clips the action to the allowed boundaries
             self.actor.train()
         return actions

@@ -27,11 +27,11 @@ def main():
     seed = 2
     torch.manual_seed(seed)
     np.random.seed(seed)
-    worker_id = 0
+    worker_id = 10
     print(f'Worker_id={worker_id}')
-    env = UnityEnvironment("./environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
+    env = UnityEnvironment("./environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=False)
     brain = env.brains[env.brain_names[0]]
-    env_info = env.reset(train_mode=True)[env.brain_names[0]]
+    env_info = env.reset(train_mode=False)[env.brain_names[0]]
     n_agents = len(env_info.agents)
     print('Number of agents:', n_agents)
     action_size = brain.vector_action_space_size
@@ -51,7 +51,6 @@ def main():
     writer = SummaryWriter(log_dir=log_dir)
 
     config = DefaultMunch()
-    config.seed = seed
     config.n_episodes = 40000
     config.batch_size = 256
     config.buffer_size = int(1e6)
@@ -65,7 +64,7 @@ def main():
     config.train_n_times = 2
     config.n_step_td = 10
     config.ending_condition = ending_condition
-    config.learn_start = config.max_t  # training starts after this many transitions
+    config.learn_start = 0#config.max_t  # training starts after this many transitions
     config.evaluate_every = 100
     config.use_noise = True
     config.use_priority = False
@@ -82,7 +81,7 @@ def main():
     config_file.write(json.dumps(json.loads(jsonpickle.encode(config, unpicklable=False, max_depth=1)), indent=4, sort_keys=True))
     config_file.close()
     agent = MultiAgentTD3(config)
-
+    agent.load("runs/Aug31_15-12-53_TD3 Unity Tennis/checkpoint_600.pth")
     scores = []  # list containing scores from each episode
     scores_std = []
     scores_avg = []
@@ -92,13 +91,13 @@ def main():
     global_steps = 0
     noise_scheduler = config.noise_scheduler
     for i_episode in range(config.n_episodes):
-        env_info = env.reset(train_mode=True)[env.brain_names[0]]  # reset the environment
+        env_info = env.reset(train_mode=False)[env.brain_names[0]]  # reset the environment
         states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the current state
         score = 0
         noise_magnitude=noise_scheduler.get(global_steps)
         for i in range(config.max_t):
             with torch.no_grad():
-                actions = agent.act(states, noise_scheduler.get(global_steps))  # todo introduce noise magnitude
+                actions = agent.act(states, 0)  # todo introduce noise magnitude
                 env_info = env.step(actions.cpu().numpy())[env.brain_names[0]]
                 next_states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the next state
                 rewards = torch.tensor(env_info.rewards, dtype=torch.float, device=device).unsqueeze(dim=1)  # get the reward
