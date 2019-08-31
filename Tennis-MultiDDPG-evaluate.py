@@ -27,7 +27,7 @@ def main():
     seed = 2
     torch.manual_seed(seed)
     np.random.seed(seed)
-    worker_id = 0
+    worker_id = 10
     print(f'Worker_id={worker_id}')
     env = UnityEnvironment("./environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=False)
     brain = env.brains[env.brain_names[0]]
@@ -38,7 +38,7 @@ def main():
     state_size = brain.vector_observation_space_size
     state_multiplier = brain.num_stacked_vector_observations
     action_type = brain.vector_action_space_type
-    comment = f"TD3 Unity Tennis"
+    comment = f"DDPG Unity Tennis"
     actor_fn = lambda: Policy_actor(state_size * state_multiplier, action_size, hidden_layer_size=200).to(device)
     critic_fn = lambda: Policy_critic((state_size * state_multiplier + action_size) * n_agents, hidden_layer_size=200).to(device)
     # actor1.test(device)
@@ -82,7 +82,7 @@ def main():
     config_file.write(json.dumps(json.loads(jsonpickle.encode(config, unpicklable=False, max_depth=1)), indent=4, sort_keys=True))
     config_file.close()
     agent = MultiAgentDDPG(config)
-    agent.load("runs/Aug31_14-17-06_TD3 Unity Tennis/checkpoint_300.pth")
+    agent.load("runs/Aug31_14-49-32_TD3 Unity Tennis/checkpoint_3400.pth")
     scores = []  # list containing scores from each episode
     scores_std = []
     scores_avg = []
