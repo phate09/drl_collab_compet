@@ -98,6 +98,7 @@ def main():
         states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the current state
         score = 0
         noise_magnitude = noise_scheduler.get(global_steps)
+        agent.reset()
         for i in range(config.max_t):
             with torch.no_grad():
                 actions = agent.act(states, noise_scheduler.get(global_steps))  # todo introduce noise magnitude

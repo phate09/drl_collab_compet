@@ -29,10 +29,11 @@ class TDBuffer:
         initial_states, initial_actions, initial_rewards, next_states, dones = zip(*self.buffer[0])
         # initial_state = states
         # initial_action = actions
-        total_reward = torch.zeros(1).to(self.device)
+        total_reward = [torch.zeros(1,device=self.device),torch.zeros(1,device=self.device)]
         for i, item in enumerate(self.buffer):
             states, actions, rewards, dones, next_states = zip(*item)
-            total_reward += rewards[0]  # self.gamma ** i *
+            total_reward[0] += rewards[0]  # self.gamma ** i *
+            total_reward[1] += rewards[1]  # self.gamma ** i *
         # td_error = self.evaluate_fn(initial_state, initial_action, total_reward, next_states, dones)  # total_reward + self.gamma ** len(self.buffer) * self.evaluate_fn(next_states) - self.evaluate_fn(initial_state, initial_action)
         self.memory.add((list(initial_states), list(initial_actions), total_reward, list(next_states), list(dones)), 0)
 

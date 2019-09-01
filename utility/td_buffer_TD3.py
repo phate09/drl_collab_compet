@@ -35,9 +35,9 @@ class TDBuffer:
         for i, item in enumerate(self.buffer):
             states, actions, rewards, dones, next_states = item
             total_reward += rewards  # self.gamma ** i *
-        td_error = self.calculate_td_errors(initial_state, initial_action, total_reward, next_states, dones)  # total_reward + self.gamma ** len(self.buffer) * self.evaluate_fn(next_states) - self.evaluate_fn(initial_state, initial_action)
+        # td_error = self.calculate_td_errors(initial_state, initial_action, total_reward, next_states, dones)  # total_reward + self.gamma ** len(self.buffer) * self.evaluate_fn(next_states) - self.evaluate_fn(initial_state, initial_action)
         # for i in range(states.size()[0]):
-        self.memory.add((initial_state, initial_action, total_reward, next_states, dones), abs(td_error.item()))
+        self.memory.add((initial_state, initial_action, total_reward, next_states, dones), 0)#abs(td_error.item()))
 
     def flush(self):
         """When the episode is finished empties the buffer saving it to memory"""

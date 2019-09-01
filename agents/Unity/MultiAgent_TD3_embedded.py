@@ -16,6 +16,7 @@ from agents.Unity.SingleAgent_TD3 import AgentTD3
 from utility.ReplayMemory import ExperienceReplayMemory
 from utility.PrioritisedExperienceReplayBuffer_cython import PrioritizedReplayBuffer
 from utility.Scheduler import Scheduler
+from utility.noise import OUNoise
 from utility.td_buffer import TDBuffer
 import torch.nn.functional as F
 
@@ -75,7 +76,8 @@ class MultiAgentTD3(GenericAgent):
         self.replay_buffer = ExperienceReplayMemory(config.buffer_size)
         self.td_buffer = TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=self.replay_buffer, evaluate_fn=lambda *args: 1.0, device=self.device)
         self.global_step = 0
-        self.writer = config.summary_writer_fn()
+        self.writer = config.summary_writer_fn() if config.summary_writer_fn else None
+        self.noise = OUNoise(self.action_size, config.seed)
 
     # self.t_update_target_step = 0
     def required_properties(self):
@@ -85,11 +87,10 @@ class MultiAgentTD3(GenericAgent):
                 constants.n_episodes,
                 constants.gamma,
                 constants.tau,
-                constants.device,
-                "summary_writer_fn"]
+                constants.device]
 
     def reset(self):
-        pass
+        self.noise.reset()
         # for agent in self.agents:
         #     agent.reset()
 
@@ -111,8 +112,8 @@ class MultiAgentTD3(GenericAgent):
                 actions2: torch.Tensor = self.actor2(states[1])
                 actions = torch.stack([actions1, actions2], dim=0)
                 if noise_magnitude != 0:
-                    noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude).clamp(-self.max_action / 2, self.max_action / 2).to(device=self.device)  # adds exploratory noise
-                    # noise = torch.tensor(self.noise.sample(), dtype=torch.float, device=self.device)
+                    # noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude).clamp(-self.max_action / 2, self.max_action / 2).to(device=self.device)  # adds exploratory noise
+                    noise = torch.tensor(self.noise.sample(), dtype=torch.float, device=self.device)
                 else:
                     noise = torch.zeros_like(actions)
                 actions = torch.clamp(actions + noise, -self.max_action, self.max_action).to(self.device)  # clips the action to the allowed boundaries
@@ -131,7 +132,7 @@ class MultiAgentTD3(GenericAgent):
         self.td_buffer.add(list(queue))
         self.global_step = (self.global_step + 1)
         if self.global_step % self.train_every == 0:
-            if len(self.replay_buffer) >= self.batch_size and self.global_step >= self.learn_start:
+            if len(self.replay_buffer) >= self.batch_size:  # and self.global_step >= self.learn_start
                 # experiences, is_values, indices = self.replay_buffer.sample(self.batch_size, beta=0.5)
                 self.learn(self.global_step)
 
@@ -149,7 +150,7 @@ class MultiAgentTD3(GenericAgent):
             states, actions, rewards, dones, next_states = zip(*experiences)
             states = torch.stack([torch.stack(state) for state in states])
             actions = torch.stack([torch.stack(action) for action in actions])
-            rewards = torch.stack(rewards)
+            rewards = torch.stack([torch.stack(reward) for reward in rewards])
             next_states = torch.stack([torch.stack(state) for state in next_states])
             is_values = torch.from_numpy(is_values).float().to(self.device)
             dones = 1 - torch.stack([torch.stack(done).any() for done in dones]).float()
@@ -159,20 +160,20 @@ class MultiAgentTD3(GenericAgent):
         policy_noise = 0.2  #
         noise_clip = 0.5
         # Select action according to policy and add clipped noise
-        noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * policy_noise)
-        noise = noise.clamp(-noise_clip, noise_clip).to(self.device)
+        # noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * policy_noise)
+        # noise = noise.clamp(-noise_clip, noise_clip).to(self.device)
         all_next_actions1 = self.target_actor1(next_states[:, 0].view(-1, states.size()[-1]))
         all_next_actions2 = self.target_actor2(next_states[:, 1].view(-1, states.size()[-1]))
-        all_next_actions = (torch.stack([all_next_actions1, all_next_actions2], dim=1).view(actions.size()) + noise).clamp(-self.max_action, self.max_action)
+        all_next_actions = (torch.stack([all_next_actions1, all_next_actions2], dim=1).view(actions.size())).clamp(-self.max_action, self.max_action)  # +noise
         next_states_next_actions = torch.cat((next_states, all_next_actions), dim=2)
         state_action = torch.cat((states, actions), dim=2)
         next_states_next_actions_size = next_states_next_actions.size()
         target_Q1_1, target_Q2_1 = self.target_critic1(next_states_next_actions.view(next_states_next_actions_size[0], -1))
-        target_Q1_2, target_Q2_2 = self.target_critic1(next_states_next_actions.view(next_states_next_actions_size[0], -1))
+        target_Q1_2, target_Q2_2 = self.target_critic2(next_states_next_actions.view(next_states_next_actions_size[0], -1))
         target_Q_1 = torch.min(target_Q1_1, target_Q2_1)  # takes the minimum of the two critics
         target_Q_2 = torch.min(target_Q1_2, target_Q2_2)  # takes the minimum of the two critics
-        y_1 = rewards + (self.gamma ** self.n_step_td * target_Q_1 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
-        y_2 = rewards + (self.gamma ** self.n_step_td * target_Q_2 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
+        y_1 = rewards[:, 0] + (self.gamma ** self.n_step_td * target_Q_1 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
+        y_2 = rewards[:, 1] + (self.gamma ** self.n_step_td * target_Q_2 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
         Qs_a1_1, Qs_a2_1 = self.critic1(state_action.view(state_action.size()[0], -1))
         Qs_a1_2, Qs_a2_2 = self.critic2(state_action.view(state_action.size()[0], -1))
         # update critic
