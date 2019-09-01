@@ -27,29 +27,30 @@ def main():
     seed = 2
     torch.manual_seed(seed)
     np.random.seed(seed)
-    worker_id = 1
+    worker_id = 10
     print(f'Worker_id={worker_id}')
-    env = UnityEnvironment("./environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
+    env = UnityEnvironment("./environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=False)
     brain = env.brains[env.brain_names[0]]
-    env_info = env.reset(train_mode=True)[env.brain_names[0]]
+    env_info = env.reset(train_mode=False)[env.brain_names[0]]
     n_agents = len(env_info.agents)
     print('Number of agents:', n_agents)
     action_size = brain.vector_action_space_size
     state_size = brain.vector_observation_space_size
     state_multiplier = brain.num_stacked_vector_observations
     action_type = brain.vector_action_space_type
-    comment = f"TD3 Embedded Unity Tennis"
+    comment = f"TD3 Unity Tennis"
     actor_fn = lambda: Policy_actor(state_size * state_multiplier, action_size, hidden_layer_size=200).to(device)
     critic_fn = lambda: Policy_critic((state_size * state_multiplier + action_size) * n_agents, hidden_layer_size=200).to(device)
     # actor1.test(device)
-    optimiser_actor_fn = lambda actor: optim.Adam(actor.parameters(), lr=1e-4)
-    optimiser_critic_fn = lambda critic: optim.Adam(critic.parameters(), lr=1e-4)
+    optimizer_actor_fn = lambda actor: optim.Adam(actor.parameters(), lr=1e-4)
+    optimizer_critic_fn = lambda critic: optim.Adam(critic.parameters(), lr=1e-4)
     ending_condition = lambda result: result['mean'] >= 300.0
     log_dir = os.path.join('runs', current_time + '_' + comment)
     os.mkdir(log_dir)
     print(f"logging to {log_dir}")
     writer = SummaryWriter(log_dir=log_dir)
-
+    optimiser_actor_fn = lambda actor: optim.Adam(actor.parameters(), lr=1e-4)
+    optimiser_critic_fn = lambda critic: optim.Adam(critic.parameters(), lr=1e-4)
     config = DefaultMunch()
     config.seed = seed
     config.n_episodes = 40000
@@ -84,7 +85,7 @@ def main():
     config_file.write(json.dumps(json.loads(jsonpickle.encode(config, unpicklable=False, max_depth=1)), indent=4, sort_keys=True))
     config_file.close()
     agent = MultiAgentTD3(config)
-
+    agent.load("runs/Sep01_15-39-09_TD3 Embedded Unity Tennis/checkpoint_300.pth")
     scores = []  # list containing scores from each episode
     scores_std = []
     scores_avg = []
@@ -94,13 +95,13 @@ def main():
     global_steps = 0
     noise_scheduler = config.noise_scheduler
     for i_episode in range(config.n_episodes):
-        env_info = env.reset(train_mode=True)[env.brain_names[0]]  # reset the environment
+        env_info = env.reset(train_mode=False)[env.brain_names[0]]  # reset the environment
         states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the current state
         score = 0
-        noise_magnitude = noise_scheduler.get(global_steps)
+        noise_magnitude=noise_scheduler.get(global_steps)
         for i in range(config.max_t):
             with torch.no_grad():
-                actions = agent.act(states, noise_scheduler.get(global_steps))  # todo introduce noise magnitude
+                actions = agent.act(states, 0)  # todo introduce noise magnitude
                 env_info = env.step(actions.cpu().numpy())[env.brain_names[0]]
                 next_states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the next state
                 rewards = torch.tensor(env_info.rewards, dtype=torch.float, device=device).unsqueeze(dim=1)  # get the reward

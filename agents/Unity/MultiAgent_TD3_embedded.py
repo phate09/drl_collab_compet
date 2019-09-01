@@ -75,6 +75,7 @@ class MultiAgentTD3(GenericAgent):
         self.replay_buffer = ExperienceReplayMemory(config.buffer_size)
         self.td_buffer = TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=self.replay_buffer, evaluate_fn=lambda *args: 1.0, device=self.device)
         self.global_step = 0
+        self.writer = config.summary_writer_fn()
 
     # self.t_update_target_step = 0
     def required_properties(self):
@@ -88,8 +89,9 @@ class MultiAgentTD3(GenericAgent):
                 "summary_writer_fn"]
 
     def reset(self):
-        for agent in self.agents:
-            agent.reset()
+        pass
+        # for agent in self.agents:
+        #     agent.reset()
 
     def act(self, states, noise_magnitude=0) -> torch.Tensor:
         """
@@ -105,8 +107,8 @@ class MultiAgentTD3(GenericAgent):
             self.actor1.eval()
             self.actor2.eval()
             with torch.no_grad():
-                actions1: torch.Tensor = self.actor1(states)
-                actions2: torch.Tensor = self.actor2(states)
+                actions1: torch.Tensor = self.actor1(states[0])
+                actions2: torch.Tensor = self.actor2(states[1])
                 actions = torch.stack([actions1, actions2], dim=0)
                 if noise_magnitude != 0:
                     noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude).clamp(-self.max_action / 2, self.max_action / 2).to(device=self.device)  # adds exploratory noise
@@ -129,8 +131,8 @@ class MultiAgentTD3(GenericAgent):
         self.td_buffer.add(list(queue))
         self.global_step = (self.global_step + 1)
         if self.global_step % self.train_every == 0:
-            if len(self.replay_buffer) >= self.batch_size:
-                experiences, is_values, indices = self.replay_buffer.sample(self.batch_size, beta=0.5)
+            if len(self.replay_buffer) >= self.batch_size and self.global_step >= self.learn_start:
+                # experiences, is_values, indices = self.replay_buffer.sample(self.batch_size, beta=0.5)
                 self.learn(self.global_step)
 
     def learn(self, i_episode: int):
@@ -142,7 +144,7 @@ class MultiAgentTD3(GenericAgent):
                     gamma (float): discount factor
                 """
         for i in range(self.train_n_times):
-            beta = (self.beta_end - self.beta_start) * i_episode / self.n_episodes + self.beta_start
+            beta = (self.beta_end - self.beta_start) * (i_episode - self.learn_start) / (self.n_episodes - self.learn_start) + self.beta_start
             experiences, is_values, indexes = self.replay_buffer.sample(self.batch_size, beta=beta)
             states, actions, rewards, dones, next_states = zip(*experiences)
             states = torch.stack([torch.stack(state) for state in states])
@@ -151,65 +153,122 @@ class MultiAgentTD3(GenericAgent):
             next_states = torch.stack([torch.stack(state) for state in next_states])
             is_values = torch.from_numpy(is_values).float().to(self.device)
             dones = 1 - torch.stack([torch.stack(done).any() for done in dones]).float()
-            policy_noise = 0.2  #
-            noise_clip = 0.5
-            # Select action according to policy and add clipped noise
-            batch_size = states.size()[0]
-            # all_next_actions = []
-            # for i in range(self.n_agents):
-            #     noise = torch.normal(torch.zeros_like(actions[:, i]), torch.ones_like(actions[:, i]) * policy_noise)
-            #     noise = noise.clamp(-noise_clip, noise_clip).to(self.device)
-            #     target_action_next = (self.target_actor(next_states[:, i]) + noise).clamp(-self.max_action, self.max_action)
-            #     all_next_actions.append(target_action_next)
-            #
-            # all_next_actions = torch.stack(all_next_actions,dim=1)
-            noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * policy_noise)
-            noise = noise.clamp(-noise_clip, noise_clip).to(self.device)
-            all_next_actions = (self.target_actor(next_states.view(-1, states.size()[-1])).view(actions.size()) + noise).clamp(-self.max_action, self.max_action)
+            self._learn(states, actions, rewards, dones, next_states, i % self.d == 0, i_episode)
 
-            next_states_next_actions = torch.cat((next_states, all_next_actions), dim=2)
-            state_action = torch.cat((states, actions), dim=2)
-            next_states_next_actions_size = next_states_next_actions.size()
-            target_Q1, target_Q2 = self.target_critic(next_states_next_actions.view(next_states_next_actions_size[0], -1))
-            target_Q = torch.min(target_Q1, target_Q2)  # takes the minimum of the two critics
-            y = rewards + (self.gamma ** self.n_step_td * target_Q * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
-            Qs_a1, Qs_a2 = self.critic(state_action.view(state_action.size()[0], -1))
+    def _learn(self, states, actions, rewards, dones, next_states, train_actor: bool, i_episode):
+        policy_noise = 0.2  #
+        noise_clip = 0.5
+        # Select action according to policy and add clipped noise
+        noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * policy_noise)
+        noise = noise.clamp(-noise_clip, noise_clip).to(self.device)
+        all_next_actions1 = self.target_actor1(next_states[:, 0].view(-1, states.size()[-1]))
+        all_next_actions2 = self.target_actor2(next_states[:, 1].view(-1, states.size()[-1]))
+        all_next_actions = (torch.stack([all_next_actions1, all_next_actions2], dim=1).view(actions.size()) + noise).clamp(-self.max_action, self.max_action)
+        next_states_next_actions = torch.cat((next_states, all_next_actions), dim=2)
+        state_action = torch.cat((states, actions), dim=2)
+        next_states_next_actions_size = next_states_next_actions.size()
+        target_Q1_1, target_Q2_1 = self.target_critic1(next_states_next_actions.view(next_states_next_actions_size[0], -1))
+        target_Q1_2, target_Q2_2 = self.target_critic1(next_states_next_actions.view(next_states_next_actions_size[0], -1))
+        target_Q_1 = torch.min(target_Q1_1, target_Q2_1)  # takes the minimum of the two critics
+        target_Q_2 = torch.min(target_Q1_2, target_Q2_2)  # takes the minimum of the two critics
+        y_1 = rewards + (self.gamma ** self.n_step_td * target_Q_1 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
+        y_2 = rewards + (self.gamma ** self.n_step_td * target_Q_2 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
+        Qs_a1_1, Qs_a2_1 = self.critic1(state_action.view(state_action.size()[0], -1))
+        Qs_a1_2, Qs_a2_2 = self.critic2(state_action.view(state_action.size()[0], -1))
+        # update critic
+        self.critic1.train()
+        self.critic2.train()
+        self.actor1.train()
+        self.actor2.train()
+        td_error1 = y_1.detach() - torch.min(Qs_a1_1, Qs_a2_1) + 1e-5
+        td_error2 = y_2.detach() - torch.min(Qs_a1_2, Qs_a2_2) + 1e-5
+        # if self.use_priority:
+        #     self.replay_buffer.update_priorities(indexes, abs(td_error))
+        loss_critic_1 = F.mse_loss(y_1.detach(), Qs_a1_1) + F.mse_loss(y_1.detach(), Qs_a2_1)  # * is_values.detach()
+        loss_critic_2 = F.mse_loss(y_2.detach(), Qs_a1_2) + F.mse_loss(y_2.detach(), Qs_a2_2)  # * is_values.detach()
+        self.optimiser_critic1.zero_grad()
+        loss_critic_1.mean().backward()
+        # torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1)
+        self.optimiser_critic1.step()
+        self.optimiser_critic2.zero_grad()
+        loss_critic_2.mean().backward()
+        # torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1)
+        self.optimiser_critic2.step()
+        if self.writer is not None:
+            self.writer.add_scalar(f'loss/critic1', loss_critic_1.mean(), i_episode)
+            self.writer.add_scalar(f'loss/critic2', loss_critic_2.mean(), i_episode)
+        if train_actor:
+            mu_s_1 = self.actor1(states[:, 0])
+            mu_s_2 = self.actor2(states[:, 1])
+            state_action1 = torch.cat((states, torch.stack([mu_s_1, mu_s_2.detach()], dim=1)), dim=2)
+            state_action2 = torch.cat((states, torch.stack([mu_s_1.detach(), mu_s_2], dim=1)), dim=2)
+            Qs_mu_s1_1, Qs_mu_s2_1 = self.critic1(state_action1.view(state_action1.size()[0], -1))
+            Qs_mu_s1_2, Qs_mu_s2_2 = self.critic2(state_action2.view(state_action2.size()[0], -1))
 
-            # update critic
-            self.critic.train()
-            self.actor.train()
-            td_error = torch.min(y.detach() - Qs_a1, y.detach() - Qs_a2) + 1e-5
-            if self.use_priority:
-                self.replay_buffer.update_priorities(indexes, abs(td_error))
-            loss_critic = F.mse_loss(y.detach(), Qs_a1) + F.mse_loss(y.detach(), Qs_a2)  # * is_values.detach()
-            self.optimiser_critic.zero_grad()
-            loss_critic.mean().backward()
-            # torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1)
-            self.optimiser_critic.step()
+            # update actor
+            loss_actor1 = -Qs_mu_s1_1  # gradient ascent , use only the first of the critic's outputs
+            loss_actor2 = -Qs_mu_s1_2  # gradient ascent , use only the first of the critic's outputs
+            self.optimiser_actor1.zero_grad()
+            loss_actor1.mean().backward()
+            # torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1)
+            self.optimiser_actor1.step()
 
-            self.writer.add_scalar(f'loss/critic{self.tag}', loss_critic.mean(), i_episode)
-            if i % self.d == 0:
-                mu_s = self.actor(states[:, 0])
-                s_mu_s = torch.cat((states[:, 0], mu_s), dim=1)
-                other_mu_s = self.actor(states[:, 1]).detach() if self.other_actor_fn is None else self.other_actor_fn(states[:, 1]).detach()
-                state_action2 = torch.cat((states, torch.stack([mu_s, other_mu_s], dim=1)), dim=2)
-                Qs_mu_s1, Qs_mu_s2 = self.critic(state_action2.view(state_action2.size()[0], -1))
+            self.optimiser_actor2.zero_grad()
+            loss_actor2.mean().backward()
+            # torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1)
+            self.optimiser_actor2.step()
 
-                # update actor
-                loss_actor = -Qs_mu_s1  # gradient ascent , use only the first of the critic's outputs
-                self.optimiser_actor.zero_grad()
-                loss_actor.mean().backward()
-                # torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 1)
-                self.optimiser_actor.step()
+            if self.writer is not None:
+                self.writer.add_scalar(f'loss/actor1', loss_critic_1.mean(), i_episode)
+                self.writer.add_scalar(f'loss/actor2', loss_critic_2.mean(), i_episode)
+            self.soft_update(self.critic1, self.target_critic1, self.tau)
+            self.soft_update(self.actor1, self.target_actor1, self.tau)
+            self.soft_update(self.critic2, self.target_critic2, self.tau)
+            self.soft_update(self.actor2, self.target_actor2, self.tau)
 
-                self.writer.add_scalar(f'loss/actor{self.tag}', loss_critic.mean(), i_episode)
-                self.soft_update(self.critic, self.target_critic, self.tau)
-                self.soft_update(self.actor, self.target_actor, self.tau)
+    def soft_update(self, local_model, target_model, tau):
+        """Soft update model parameters.
+        θ_target = τ*θ_local + (1 - τ)*θ_target
+
+        Params
+        ======
+            local_model (PyTorch model): weights will be copied from
+            target_model (PyTorch model): weights will be copied to
+            tau (float): interpolation parameter
+        """
+        for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
+            target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
     def save(self, path, episode):
-        for agent in self.agents:
-            agent.save(path, episode)
+        torch.save({
+            "global_step": self.global_step,
+            "actor1": self.actor1.state_dict(),
+            "actor2": self.actor2.state_dict(),
+            "target_actor1": self.target_actor1.state_dict(),
+            "target_actor2": self.target_actor2.state_dict(),
+            "critic1": self.critic1.state_dict(),
+            "critic2": self.critic2.state_dict(),
+            "target_critic1": self.target_critic1.state_dict(),
+            "target_critic2": self.target_critic2.state_dict(),
+            "optimiser_actor1": self.optimiser_actor1.state_dict(),
+            "optimiser_actor2": self.optimiser_actor2.state_dict(),
+            "optimiser_critic1": self.optimiser_critic1.state_dict(),
+            "optimiser_critic2": self.optimiser_critic2.state_dict(),
+        }, path)
 
     def load(self, path):
-        for agent in self.agents:
-            agent.load(path)
+        checkpoint = torch.load(path)
+        self.actor1.load_state_dict(checkpoint["actor1"])
+        self.actor2.load_state_dict(checkpoint["actor2"])
+        self.target_actor1.load_state_dict(checkpoint["target_actor1"])
+        self.target_actor2.load_state_dict(checkpoint["target_actor2"])
+        self.critic1.load_state_dict(checkpoint["critic1"])
+        self.critic2.load_state_dict(checkpoint["critic2"])
+        self.target_critic1.load_state_dict(checkpoint["target_critic1"])
+        self.target_critic2.load_state_dict(checkpoint["target_critic2"])
+        self.optimiser_actor1.load_state_dict(checkpoint["optimiser_actor1"])
+        self.optimiser_actor2.load_state_dict(checkpoint["optimiser_actor2"])
+        self.optimiser_critic1.load_state_dict(checkpoint["optimiser_critic1"])
+        self.optimiser_critic2.load_state_dict(checkpoint["optimiser_critic2"])
+        self.global_step = checkpoint["global_step"]
+        print(f'Loading complete')
