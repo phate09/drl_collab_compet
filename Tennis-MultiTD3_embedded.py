@@ -38,7 +38,7 @@ def main():
     state_size = brain.vector_observation_space_size
     state_multiplier = brain.num_stacked_vector_observations
     action_type = brain.vector_action_space_type
-    comment = f"TD3 Unity Tennis"
+    comment = f"TD3 Embedded Unity Tennis"
     actor_fn = lambda: Policy_actor(state_size * state_multiplier, action_size, hidden_layer_size=200).to(device)
     critic_fn = lambda: Policy_critic((state_size * state_multiplier + action_size) * n_agents, hidden_layer_size=200).to(device)
     # actor1.test(device)

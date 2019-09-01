@@ -83,6 +83,8 @@ class MultiAgentTD3(GenericAgent):
             # self.td_buffers.append(TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=buffer, critic=agent_config.critic, target_critic=target_critic, target_actor=target_actor, device=self.device))
             agent = AgentTD3(merged_config)
             self.agents.append(agent)
+        for i,agent in enumerate(self.agents):
+            agent.other_actor_fn = self.agents[(i+1)%self.n_agents].act
 
     # self.t_update_target_step = 0
     def required_properties(self):
@@ -119,7 +121,7 @@ class MultiAgentTD3(GenericAgent):
             queue.append((states[i], actions[i], rewards[i], dones[i], next_states[i]))
         for i in range(self.n_agents):
             self.agents[i].step(list(queue))
-            queue.rotate(1)  # rotate by 1 so it basically shifts the point of view
+            # queue.rotate(1)  # rotate by 1 so it basically shifts the point of view
 
     # def train(self, env, ending_condition):
     #     """

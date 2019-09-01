@@ -7,20 +7,20 @@ import torch
 import torch.distributions
 import torch.nn as nn
 import torch.optim.optimizer
+from munch import DefaultMunch
 from tensorboardX import SummaryWriter
 
 import utility.constants as constants
 from agents.GenericAgent import GenericAgent
-from utility.PrioritisedExperienceReplayBuffer_cython import PrioritizedReplayBuffer
+from agents.Unity.SingleAgent_TD3 import AgentTD3
 from utility.ReplayMemory import ExperienceReplayMemory
+from utility.PrioritisedExperienceReplayBuffer_cython import PrioritizedReplayBuffer
 from utility.Scheduler import Scheduler
-from utility.noise import OUNoise
 from utility.td_buffer import TDBuffer
 import torch.nn.functional as F
-from munch import DefaultMunch
 
 
-class AgentTD3(GenericAgent):
+class MultiAgentTD3(GenericAgent):
     """Interacts with and learns from the environment."""
 
     def __init__(self, config: DefaultMunch):
@@ -33,21 +33,14 @@ class AgentTD3(GenericAgent):
             seed (int): random seed
         """
         super().__init__(config)
-        self.actor: torch.nn.Module = config.actor_fn()
-        self.critic: torch.nn.Module = config.critic_fn()
-        self.target_actor: torch.nn.Module = config.actor_fn()  # clones the actor
-        self.target_actor.load_state_dict(self.actor.state_dict())
-        self.target_critic: torch.nn.Module = config.critic_fn()  # clones the critic
-        self.target_critic.load_state_dict(self.critic.state_dict())
-        self.input_dim: int = config[constants.input_dim]
-        self.output_dim: int = config[constants.output_dim]
-        self.n_episodes: int = config[constants.n_episodes]
-        self.gamma: float = config[constants.gamma]
-        self.tau: float = config[constants.tau]
-        self.device = config[constants.device]
-        self.optimiser_actor: torch.optim.optimizer.Optimizer = config.optimiser_actor_fn(self.actor)
-        self.optimiser_critic: torch.optim.optimizer.Optimizer = config.optimiser_critic_fn(self.critic)
-        self.ending_condition = config[constants.ending_condition]
+        self.input_dim: int = config.input_dim
+        self.output_dim: int = config.output_dim
+        self.max_t: int = config.max_t
+        self.n_episodes: int = config.n_episodes
+        self.gamma: float = config.gamma
+        self.tau: float = config.tau
+        self.device = config.device
+        self.ending_condition = config.ending_condition
         self.batch_size = config.batch_size
         self.action_size = config.action_size
         self.n_agents = config.n_agents
@@ -55,33 +48,33 @@ class AgentTD3(GenericAgent):
         self.beta_end = 1.0
         self.train_every = config.train_every
         self.train_n_times = config.train_n_times
-        self.buffer_size = config.buffer_size
+        self.log_dir = config.log_dir if constants.log_dir in config else None
         self.n_step_td = config.n_step_td
+        self.use_noise = config.use_noise if constants.use_noise in config else False
+        self.noise_scheduler: Scheduler = config.noise_scheduler if constants.noise_scheduler in config else None
         self.learn_start: int = config.learn_start if config.learn_start is not None else 0
-        self.writer: SummaryWriter = config.summary_writer_fn()
-        self.use_priority = config.use_priority
-        self.replay_buffer = config.replay_buffer_fn() if config.replay_buffer_fn else self.buffer_fn()
-        self.td_buffer = self.local_td_buffer_fn()
+        self.evaluate_every = config.evaluate_every if config.evaluate_every is not None else 100
         self.config = config
+        self.starting_episode = 0  # used for loading checkpoints from save file
         self.max_action = 1
-        self.tag = config.tag if config.tag is not None else ""
-        self.d = 2  # trottle updates of the actor compared to the critic
-        self.global_step = 0  # used internally for loading checkpoints from save file
-        self.noise = OUNoise(self.action_size, config.seed)
-        self.other_actor_fn = None
+        self.d = 2
+        self.use_priority: bool = config.use_priority
 
-    def buffer_fn(self):
-        if self.use_priority:
-            buffer = PrioritizedReplayBuffer(self.buffer_size, alpha=0.6)
-        else:
-            buffer = ExperienceReplayMemory(self.buffer_size)
-        return buffer
-
-    def local_td_buffer_fn(self):
-        if self.use_priority:
-            return TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=self.replay_buffer, evaluate_fn=self.calculate_td_errors, device=self.device)
-        else:
-            return TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=self.replay_buffer, evaluate_fn=lambda *args: 1.0, device=self.device)
+        self.actor1 = config.actor_fn()
+        self.actor2 = config.actor_fn()
+        self.target_actor1 = config.actor_fn()
+        self.target_actor2 = config.actor_fn()
+        self.critic1 = config.critic_fn()
+        self.critic2 = config.critic_fn()
+        self.target_critic1 = config.critic_fn()
+        self.target_critic2 = config.critic_fn()
+        self.optimiser_actor1 = config.optimiser_actor_fn(self.actor1)
+        self.optimiser_actor2 = config.optimiser_actor_fn(self.actor2)
+        self.optimiser_critic1 = config.optimiser_critic_fn(self.critic1)
+        self.optimiser_critic2 = config.optimiser_critic_fn(self.critic2)
+        self.replay_buffer = ExperienceReplayMemory(config.buffer_size)
+        self.td_buffer = TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=self.replay_buffer, evaluate_fn=lambda *args: 1.0, device=self.device)
+        self.global_step = 0
 
     # self.t_update_target_step = 0
     def required_properties(self):
@@ -94,42 +87,60 @@ class AgentTD3(GenericAgent):
                 constants.device,
                 "summary_writer_fn"]
 
-    def step(self, memory):
-        self.td_buffer.add(memory)
-        self.global_step = (self.global_step + 1)
-        if self.global_step % self.train_every == 0:
-            if len(self.replay_buffer) >= self.batch_size:
-                experiences, is_values, indices = self.replay_buffer.sample(self.batch_size, beta=0.5)
-                self.learn(self.global_step)
-
     def reset(self):
-        self.noise.reset()  # todo resets the noise generator/or maybe the internals of noisy nets
+        for agent in self.agents:
+            agent.reset()
 
-    def act(self, states: torch.Tensor, noise_magnitude=0):
-        # noise_magnitude = 0.2 if self.noise_scheduler is None else self.noise_scheduler.get(i_episode)
+    def act(self, states, noise_magnitude=0) -> torch.Tensor:
+        """
+        Returns the action(s) to take given the current state(s)
+        :param states:
+        :param noise_magnitude:
+        :return:
+        """
         if self.global_step < self.learn_start:
-            actions = (torch.rand(states.size()[0], self.action_size) * 2).to(self.device) - self.max_action
+            actions = (torch.rand(self.n_agents, self.action_size) * 2).to(self.device) - self.max_action
+            return actions
         else:
-            self.actor.eval()
+            self.actor1.eval()
+            self.actor2.eval()
             with torch.no_grad():
-                actions: torch.Tensor = self.actor(states)
+                actions1: torch.Tensor = self.actor1(states)
+                actions2: torch.Tensor = self.actor2(states)
+                actions = torch.stack([actions1, actions2], dim=0)
                 if noise_magnitude != 0:
                     noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude).clamp(-self.max_action / 2, self.max_action / 2).to(device=self.device)  # adds exploratory noise
                     # noise = torch.tensor(self.noise.sample(), dtype=torch.float, device=self.device)
                 else:
                     noise = torch.zeros_like(actions)
                 actions = torch.clamp(actions + noise, -self.max_action, self.max_action).to(self.device)  # clips the action to the allowed boundaries
-            self.actor.train()
-        return actions
+            self.actor1.train()
+            self.actor2.train()
+            return actions
+
+    def step(self, states, actions, rewards, dones, next_states):
+        # adds the transitions to the corresponding td_buffer from the point of view of the agent
+        queue = deque(maxlen=self.n_agents)
+        for i in range(self.n_agents):
+            queue.append((states[i], actions[i], rewards[i], dones[i], next_states[i]))
+        # for i in range(self.n_agents):
+        #     self.agents[i].step(list(queue))
+        #     queue.rotate(1)  # rotate by 1 so it basically shifts the point of view
+        self.td_buffer.add(list(queue))
+        self.global_step = (self.global_step + 1)
+        if self.global_step % self.train_every == 0:
+            if len(self.replay_buffer) >= self.batch_size:
+                experiences, is_values, indices = self.replay_buffer.sample(self.batch_size, beta=0.5)
+                self.learn(self.global_step)
 
     def learn(self, i_episode: int):
         """Update value parameters using given batch of experience tuples.
 
-        Params
-        ======
-            experiences (Tuple[torch.Variable]): tuple of (s, a, r, s', done) tuples
-            gamma (float): discount factor
-        """
+                Params
+                ======
+                    experiences (Tuple[torch.Variable]): tuple of (s, a, r, s', done) tuples
+                    gamma (float): discount factor
+                """
         for i in range(self.train_n_times):
             beta = (self.beta_end - self.beta_start) * i_episode / self.n_episodes + self.beta_start
             experiences, is_values, indexes = self.replay_buffer.sample(self.batch_size, beta=beta)
@@ -195,49 +206,10 @@ class AgentTD3(GenericAgent):
                 self.soft_update(self.critic, self.target_critic, self.tau)
                 self.soft_update(self.actor, self.target_actor, self.tau)
 
-    def soft_update(self, local_model, target_model, tau):
-        """Soft update model parameters.
-        θ_target = τ*θ_local + (1 - τ)*θ_target
-
-        Params
-        ======
-            local_model (PyTorch model): weights will be copied from
-            target_model (PyTorch model): weights will be copied to
-            tau (float): interpolation parameter
-        """
-        for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
-            target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
-
-    def calculate_td_errors(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, next_states: torch.Tensor, dones: torch.Tensor) -> torch.Tensor:
-        concat_states = torch.cat([states, actions], dim=1)
-        suggested_next_action = self.target_actor(next_states)
-        concat_next_states = torch.cat([next_states, suggested_next_action], dim=1)
-        dones = (1 - dones.float())
-        target_Q1, target_Q2 = self.target_critic(concat_next_states)
-        Q1, Q2 = self.critic(concat_states)
-        y = rewards + np.power(self.gamma, self.n_step_td) * torch.min(target_Q1, target_Q2) * dones
-        td_errors = torch.min(y - Q1, y - Q2)
-        return td_errors  # calculate the td-errors, maybe use GAE
-
-    def save(self, path, global_step):
-        torch.save({
-            "global_step": global_step,
-            "actor": self.actor.state_dict(),
-            "target_actor": self.target_actor.state_dict(),
-            "critic": self.critic.state_dict(),
-            "target_critic": self.target_critic.state_dict(),
-            "optimiser_actor": self.optimiser_actor.state_dict(),
-            "optimiser_critic": self.optimiser_critic.state_dict(),
-        }, path)
+    def save(self, path, episode):
+        for agent in self.agents:
+            agent.save(path, episode)
 
     def load(self, path):
-        checkpoint = torch.load(path)
-        self.actor.load_state_dict(checkpoint["actor"])
-        self.target_actor.load_state_dict(checkpoint["target_actor"])
-        self.critic.load_state_dict(checkpoint["critic"])
-        self.target_critic.load_state_dict(checkpoint["target_critic"])
-        self.optimiser_actor.load_state_dict(checkpoint["optimiser_actor"])
-        self.optimiser_critic.load_state_dict(checkpoint["optimiser_critic"])
-        self.replay_buffer = checkpoint["optimiser_critic"]
-        self.global_step = checkpoint["global_step"]
-        print(f'Loading complete')
+        for agent in self.agents:
+            agent.load(path)
