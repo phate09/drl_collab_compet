@@ -63,10 +63,10 @@ class MultiAgent(object):
             agent.step()
 
     def act(self, states, add_noise=True):
-        na_rtn = np.zeros([self.nb_agents, self.action_size])
-        for idx, agent in enumerate(self.l_agents):
-            na_rtn[idx, :] = agent.act(states[idx], add_noise).cpu().numpy()
-        return na_rtn
+        actions1: torch.Tensor = self.l_agents[0].act(states[0],add_noise)
+        actions2: torch.Tensor = self.l_agents[1].act(states[1],add_noise)
+        actions = torch.stack([actions1, actions2], dim=0)
+        return actions.cpu().numpy()
 
     def reset(self):
         for agent in self.l_agents:
