@@ -1,3 +1,6 @@
+import json
+
+import jsonpickle
 import yaml
 
 from alternative.agent import MultiAgent
@@ -67,6 +70,9 @@ if __name__ == '__main__':
     config.WEIGHT_DECAY = 0.0001 # L2 weight decay
     config.UPDATE_EVERY = 2  # steps to update
     config.DEVC = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    config_file = open(os.path.join(log_dir, "config.json"), "w+")
+    config_file.write(json.dumps(json.loads(jsonpickle.encode(config, unpicklable=False, max_depth=1)), indent=4, sort_keys=True))
+    config_file.close()
     rand_seed = 0
     scores = []
     scores_std = []
