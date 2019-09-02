@@ -12,7 +12,7 @@ import torch.optim as optim
 from munch import Munch, DefaultMunch
 from tensorboardX import SummaryWriter
 from alternative import param_table
-
+import random
 '''
 Begin help functions and variables
 '''
@@ -61,6 +61,7 @@ if __name__ == '__main__':
     seed = 2
     torch.manual_seed(seed)
     np.random.seed(seed)
+    random.seed(seed)
     worker_id = 1
     print(f'Worker_id={worker_id}')
     env = UnityEnvironment("../environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
@@ -94,8 +95,7 @@ if __name__ == '__main__':
     scores_avg = []
     scores_window = deque(maxlen=100)  # last 100 scores
 
-    Agent = MultiAgent
-    agent = Agent(config,state_size * state_multiplier, action_size, n_agents, rand_seed)
+    agent = MultiAgent(config,state_size * state_multiplier, action_size, n_agents, rand_seed)
 
     print('\nTRAINING:')
     # start the training

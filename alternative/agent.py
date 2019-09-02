@@ -43,7 +43,7 @@ class MultiAgent(object):
         '''
         self.config = config
         # Replay memory
-        self.memory = ReplayBuffer(config, action_size, self.config.BUFFER_SIZE, self.config.BATCH_SIZE, rand_seed)
+        self.memory = ReplayBuffer(self.config.BUFFER_SIZE, rand_seed)
         self.nb_agents = nb_agents
         self.na_idx = np.arange(self.nb_agents)
         self.action_size = action_size
@@ -120,16 +120,17 @@ class Agent(object):
             # and learn
             if len(self.memory) > self.config.BATCH_SIZE:
                 # source: Sample a random minibatch of N transitions from R
-                experiences = self.memory.sample()
-                states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(self.config.DEVC)
-                actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(self.config.DEVC)
-                rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(self.config.DEVC)
-                next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(self.config.DEVC)
-                dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(self.config.DEVC)
+                experiences = self.memory.sample(self.config.BATCH_SIZE)
+                states, actions, rewards, next_states, dones, others_states, others_actions, others_next_states = zip(*experiences)
+                states = torch.from_numpy(np.array(states)).float().to(self.config.DEVC)
+                actions = torch.from_numpy(np.array(actions)).float().to(self.config.DEVC)
+                rewards = torch.from_numpy(np.array(rewards)).float().to(self.config.DEVC)
+                next_states = torch.from_numpy(np.array(next_states)).float().to(self.config.DEVC)
+                dones = torch.from_numpy(np.array(dones)).float().to(self.config.DEVC)
 
-                others_states = torch.from_numpy(np.vstack([e.others_states for e in experiences if e is not None])).float().to(self.config.DEVC)
-                others_actions = torch.from_numpy(np.vstack([e.others_actions for e in experiences if e is not None])).float().to(self.config.DEVC)
-                others_next_states = torch.from_numpy(np.vstack([e.others_next_states for e in experiences if e is not None])).float().to(self.config.DEVC)
+                others_states = torch.from_numpy(np.array(others_states)).float().to(self.config.DEVC).squeeze()
+                others_actions = torch.from_numpy(np.array(others_actions)).float().to(self.config.DEVC).squeeze()
+                others_next_states = torch.from_numpy(np.array(others_next_states)).float().to(self.config.DEVC).squeeze()
                 self.learn((states, actions, rewards, next_states, dones, others_states, others_actions, others_next_states), self.config.GAMMA)
 
     def act(self, states, add_noise=True):
@@ -178,11 +179,11 @@ class Agent(object):
         l_all_next_actions.append(self.actor_target(others_states))
         all_next_actions = torch.cat(l_all_next_actions, dim=1).to(self.config.DEVC)
 
-        Q_targets_next = self.critic_target(all_next_states, all_next_actions)
+        Q_targets_next = self.critic_target(all_next_states, all_next_actions).squeeze()
         # Compute Q targets for current states (y_i)
         Q_targets = rewards_ + (gamma * Q_targets_next * (1 - dones))
         # Compute critic loss: L = 1/N SUM{(yi − Q(si, ai|θQ))^2}
-        Q_expected = self.critic_local(all_states, all_actions)
+        Q_expected = self.critic_local(all_states, all_actions).squeeze()
         critic_loss = F.mse_loss(Q_expected, Q_targets)
         # Minimize the loss
         self.critic_optimizer.zero_grad()
@@ -226,7 +227,7 @@ class Agent(object):
 class ReplayBuffer(object):
     '''Fixed-size buffer to store experience tuples.'''
 
-    def __init__(self, config: DefaultMunch, action_size, buffer_size, batch_size, seed):
+    def __init__(self, buffer_size, seed):
         '''Initialize a ReplayBuffer object.
 
         :param action_size: int. dimension of each action
@@ -234,24 +235,22 @@ class ReplayBuffer(object):
         :param batch_size (int): size of each training batch
         :param seed (int): random seed
         '''
-        self.config = config
-        self.action_size = action_size
         self.memory = deque(maxlen=buffer_size)
-        self.experience = namedtuple("Experience",
-                                     field_names=["state", "action", "reward",
-                                                  "next_state", "done",
-                                                  "others_states",
-                                                  "others_actions",
-                                                  "others_next_states"])
+        # self.experience = namedtuple("Experience",
+        #                              field_names=["state", "action", "reward",
+        #                                           "next_state", "done",
+        #                                           "others_states",
+        #                                           "others_actions",
+        #                                           "others_next_states"])
         self.seed = random.seed(seed)
 
     def add(self, state, action, reward, next_state, done, others_states,
             others_actions, others_next_states):
         '''Add a new experience to memory.'''
-        e = self.experience(state, action, reward, next_state, done, others_states, others_actions, others_next_states)
-        self.memory.append(e)
+        # e = self.experience(state, action, reward, next_state, done, others_states, others_actions, others_next_states)
+        self.memory.append((state, action, reward, next_state, done, others_states, others_actions, others_next_states))
 
-    def sample(self,batch_size):
+    def sample(self, batch_size):
         '''Randomly sample a batch of experiences from memory.'''
         return random.sample(self.memory, k=batch_size)
 
