@@ -87,21 +87,21 @@ if __name__ == '__main__':
     noise_scheduler = config.noise_scheduler
     for i_episode in range(config.n_episodes):
         env_info = env.reset(train_mode=True)[env.brain_names[0]]  # reset the environment
-        states = env_info.vector_observations  # torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the current state
+        states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the current state
         score = 0
         # noise_magnitude = noise_scheduler.get(global_steps)
         for i in range(config.max_t):
             actions = agent.act(states, add_noise=True)
-            env_info = env.step(actions)[env.brain_names[0]]
-            next_states = env_info.vector_observations
-            rewards = env_info.rewards
-            dones = env_info.local_done
+            env_info = env.step(actions.cpu().numpy())[env.brain_names[0]]
+            next_states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the next state
+            rewards = torch.tensor(env_info.rewards, dtype=torch.float, device=device).unsqueeze(dim=1)  # get the reward
+            dones = torch.tensor(env_info.local_done, dtype=torch.uint8, device=device).unsqueeze(dim=1)  # see if episode has finished
             # next_states, rewards, dones = env.step(actions)
             agent.step(states, actions, rewards, next_states, dones)
             global_steps += 1
-            score += np.max(rewards)
+            score += torch.max(rewards).item()
             states = next_states
-            if np.any(dones):
+            if dones.any():
                 break
         scores.append(score)
         scores_window.append(score)

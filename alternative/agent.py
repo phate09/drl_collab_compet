@@ -59,14 +59,14 @@ class MultiAgent(object):
             others_states = states[na_filtered]
             others_actions = actions[na_filtered]
             others_next_states = next_states[na_filtered]
-            self.memory.add(state, action, reward, next_state, done, others_states, others_actions, others_next_states)
+            self.memory.add((state, action, reward, next_state, done, others_states, others_actions, others_next_states))
             agent.step()
 
     def act(self, states, add_noise=True):
-        actions1: torch.Tensor = self.l_agents[0].act(states[0],add_noise)
-        actions2: torch.Tensor = self.l_agents[1].act(states[1],add_noise)
+        actions1: torch.Tensor = self.l_agents[0].act(states[0], add_noise)
+        actions2: torch.Tensor = self.l_agents[1].act(states[1], add_noise)
         actions = torch.stack([actions1, actions2], dim=0)
-        return actions.cpu().numpy()
+        return actions
 
     def reset(self):
         for agent in self.l_agents:
@@ -122,16 +122,7 @@ class Agent(object):
                 # source: Sample a random minibatch of N transitions from R
                 experiences = self.memory.sample(self.config.BATCH_SIZE)
                 states, actions, rewards, next_states, dones, others_states, others_actions, others_next_states = zip(*experiences)
-                states = torch.from_numpy(np.array(states)).float().to(self.config.DEVC)
-                actions = torch.from_numpy(np.array(actions)).float().to(self.config.DEVC)
-                rewards = torch.from_numpy(np.array(rewards)).float().to(self.config.DEVC)
-                next_states = torch.from_numpy(np.array(next_states)).float().to(self.config.DEVC)
-                dones = torch.from_numpy(np.array(dones)).float().to(self.config.DEVC)
-
-                others_states = torch.from_numpy(np.array(others_states)).float().to(self.config.DEVC).squeeze()
-                others_actions = torch.from_numpy(np.array(others_actions)).float().to(self.config.DEVC).squeeze()
-                others_next_states = torch.from_numpy(np.array(others_next_states)).float().to(self.config.DEVC).squeeze()
-                self.learn((states, actions, rewards, next_states, dones, others_states, others_actions, others_next_states), self.config.GAMMA)
+                self.learn((torch.stack(states), torch.stack(actions), torch.stack(rewards), torch.stack(next_states), torch.stack(dones), torch.stack(others_states).squeeze(), torch.stack(others_actions).squeeze(), torch.stack(others_next_states).squeeze()), self.config.GAMMA)
 
     def act(self, states, add_noise=True):
         '''Returns actions for given states as per current policy.
@@ -139,7 +130,7 @@ class Agent(object):
         :param states: array_like. current states
         :param add_noise: Boolean. If should add noise to the action
         '''
-        states = torch.from_numpy(states).float().to(self.config.DEVC)
+        # states = torch.from_numpy(states).float().to(self.config.DEVC)
         self.actor_local.eval()
         with torch.no_grad():
             actions = self.actor_local(states)
@@ -182,11 +173,11 @@ class Agent(object):
         l_all_next_actions.append(self.actor_target(others_states))
         all_next_actions = torch.cat(l_all_next_actions, dim=1).to(self.config.DEVC)
 
-        Q_targets_next = self.critic_target(all_next_states, all_next_actions).squeeze()
+        Q_targets_next = self.critic_target(all_next_states, all_next_actions)
         # Compute Q targets for current states (y_i)
-        Q_targets = rewards_ + (gamma * Q_targets_next * (1 - dones))
+        Q_targets = rewards_ + (gamma * Q_targets_next * (1 - dones.float()))
         # Compute critic loss: L = 1/N SUM{(yi − Q(si, ai|θQ))^2}
-        Q_expected = self.critic_local(all_states, all_actions).squeeze()
+        Q_expected = self.critic_local(all_states, all_actions)
         critic_loss = F.mse_loss(Q_expected, Q_targets)
         # Minimize the loss
         self.critic_optimizer.zero_grad()
@@ -239,19 +230,11 @@ class ReplayBuffer(object):
         :param seed (int): random seed
         '''
         self.memory = deque(maxlen=buffer_size)
-        # self.experience = namedtuple("Experience",
-        #                              field_names=["state", "action", "reward",
-        #                                           "next_state", "done",
-        #                                           "others_states",
-        #                                           "others_actions",
-        #                                           "others_next_states"])
         self.seed = random.seed(seed)
 
-    def add(self, state, action, reward, next_state, done, others_states,
-            others_actions, others_next_states):
+    def add(self, transition):
         '''Add a new experience to memory.'''
-        # e = self.experience(state, action, reward, next_state, done, others_states, others_actions, others_next_states)
-        self.memory.append((state, action, reward, next_state, done, others_states, others_actions, others_next_states))
+        self.memory.append(transition)
 
     def sample(self, batch_size):
         '''Randomly sample a batch of experiences from memory.'''
