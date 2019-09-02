@@ -1,23 +1,14 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-"""
-Implement ...
-
-
-@author: ucaiado
-
-Created on 10/07/2018
-"""
 from alternative.agent import MultiAgent, PARAMS
-from collections import deque
 from unityagents import UnityEnvironment
+import os
+from collections import deque
+from datetime import datetime
+
 import numpy as np
-import platform
-import time
-import pickle
-import pdb
 import torch
-from alternative.make_env import make
+import torch.optim as optim
+from munch import Munch, DefaultMunch
+from tensorboardX import SummaryWriter
 
 '''
 Begin help functions and variables
@@ -30,13 +21,17 @@ End help functions and variables
 
 if __name__ == '__main__':
 
+    now = datetime.now()
+    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+    current_time = now.strftime('%b%d_%H-%M-%S')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print("using device: ", device)
     seed = 2
     torch.manual_seed(seed)
     np.random.seed(seed)
     worker_id = 1
     print(f'Worker_id={worker_id}')
     env = UnityEnvironment("../environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
-    num_agents = 2
     brain = env.brains[env.brain_names[0]]
     env_info = env.reset(train_mode=True)[env.brain_names[0]]
     n_agents = len(env_info.agents)
@@ -44,8 +39,20 @@ if __name__ == '__main__':
     action_size = brain.vector_action_space_size
     state_size = brain.vector_observation_space_size
     state_multiplier = brain.num_stacked_vector_observations
-    # from drlnd.ddpg_agent import Agent
-    episodes = 10000
+    action_type = brain.vector_action_space_type
+    comment = f"TD3 Unity Tennis"
+    # actor1.test(device)
+    optimizer_actor_fn = lambda actor: optim.Adam(actor.parameters(), lr=1e-4)
+    optimizer_critic_fn = lambda critic: optim.Adam(critic.parameters(), lr=1e-4)
+    ending_condition = lambda result: result['mean'] >= 300.0
+    log_dir = os.path.join('../runs', current_time + '_' + comment)
+    os.mkdir(log_dir)
+    print(f"logging to {log_dir}")
+    writer = SummaryWriter(log_dir=log_dir)
+
+    config = DefaultMunch()
+    config.seed = seed
+    config.n_episodes = 40000
     rand_seed = 0
 
     scores = []
@@ -54,7 +61,7 @@ if __name__ == '__main__':
     scores_window = deque(maxlen=100)  # last 100 scores
 
     Agent = MultiAgent
-    agent = Agent(state_size * state_multiplier, action_size, num_agents, rand_seed)
+    agent = Agent(state_size * state_multiplier, action_size, n_agents, rand_seed)
 
     print('\n')
     print(PARAMS)
@@ -67,7 +74,7 @@ if __name__ == '__main__':
         print('\n')
 
     print('\nTRAINING:')
-    for episode in range(episodes):
+    for episode in range(config.n_episodes):
         env_info = env.reset(train_mode=True)[env.brain_names[0]]
         states = env_info.vector_observations
         score = np.zeros(len(agent))
