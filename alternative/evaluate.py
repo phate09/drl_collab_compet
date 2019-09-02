@@ -116,7 +116,7 @@ if __name__ == '__main__':
         if i_episode % 100 == 0:
             print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), np.max(score)))
             # agent.save(os.path.join(log_dir, f"checkpoint_{i_episode}.pth"), i_episode)
-        if np.mean(scores_window) >= 0.9:
+        if np.mean(scores_window) >= 0.5:
             SOLVED = True
             s_msg = '\n\nEnvironment solved in {:d} episodes!\tAverage Score: {:.3f}\tσ: {:.3f}'
             print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window)))

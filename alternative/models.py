@@ -1,14 +1,3 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-"""
-Implement the Q-networks used by the agents
-
-
-@author: udacity, ucaiado
-
-Created on 10/07/2018
-"""
-
 import numpy as np
 import torch
 import torch.nn as nn

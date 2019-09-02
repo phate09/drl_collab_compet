@@ -24,7 +24,6 @@ import pdb
 
 from munch import DefaultMunch
 
-from alternative import param_table
 from alternative.models import Actor, Critic
 from utility.noise import OUNoise
 
@@ -44,14 +43,18 @@ class MultiAgent(object):
         self.config = config
         # Replay memory
         self.memory = ReplayBuffer(self.config.BUFFER_SIZE, rand_seed)
-        self.nb_agents = nb_agents
-        self.na_idx = np.arange(self.nb_agents)
+        self.n_agents = nb_agents
+        self.na_idx = np.arange(self.n_agents)
         self.action_size = action_size
         self.act_size = action_size * nb_agents
         self.state_size = state_size * nb_agents
         self.l_agents = [Agent(config, state_size, action_size, rand_seed, self) for i in range(nb_agents)]
 
     def step(self, states, actions, rewards, next_states, dones):
+        # self.memory.add((states[0],actions[0],rewards[0],next_states[0],dones[0],states[1],actions[1],states[1]))
+        # self.l_agents[0].step()
+        # self.memory.add((states[1], actions[1], rewards[1], next_states[1], dones[1], states[0], actions[0], states[0]))
+        # self.l_agents[1].step()
         experience = zip(self.l_agents, states, actions, rewards, next_states, dones)
         for i, e in enumerate(experience):
             agent, state, action, reward, next_state, done = e
@@ -71,6 +74,14 @@ class MultiAgent(object):
     def reset(self):
         for agent in self.l_agents:
             agent.reset()
+
+    def save(self, path, episode):
+        for agent in self.l_agents:
+            agent.save(path, episode)
+
+    def load(self, path):
+        for agent in self.l_agents:
+            agent.load(path)
 
 
 class Agent(object):
@@ -97,8 +108,8 @@ class Agent(object):
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.config.LR_ACTOR)
 
         # Critic Network (w/ Target Network)
-        self.critic_local = Critic(state_size, action_size, meta_agent.nb_agents, rand_seed).to(self.config.DEVC)
-        self.critic_target = Critic(state_size, action_size, meta_agent.nb_agents, rand_seed).to(self.config.DEVC)
+        self.critic_local = Critic(state_size, action_size, meta_agent.n_agents, rand_seed).to(self.config.DEVC)
+        self.critic_target = Critic(state_size, action_size, meta_agent.n_agents, rand_seed).to(self.config.DEVC)
 
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.config.LR_CRITIC)
 
@@ -216,6 +227,29 @@ class Agent(object):
         for target_param, local_param in iter_params:
             tensor_aux = tau * local_param.data + (1.0 - tau) * target_param.data
             target_param.data.copy_(tensor_aux)
+
+    def save(self, path, global_step):
+        torch.save({
+            "global_step": global_step,
+            "actor": self.actor_local.state_dict(),
+            "target_actor": self.actor_target.state_dict(),
+            "critic": self.critic_local.state_dict(),
+            "target_critic": self.critic_target.state_dict(),
+            "optimiser_actor": self.actor_optimizer.state_dict(),
+            "optimiser_critic": self.critic_optimizer.state_dict(),
+        }, path)
+
+    def load(self, path):
+        checkpoint = torch.load(path)
+        self.actor_local.load_state_dict(checkpoint["actor"])
+        self.actor_target.load_state_dict(checkpoint["target_actor"])
+        self.critic_local.load_state_dict(checkpoint["critic"])
+        self.critic_target.load_state_dict(checkpoint["target_critic"])
+        self.actor_optimizer.load_state_dict(checkpoint["optimiser_actor"])
+        self.critic_optimizer.load_state_dict(checkpoint["optimiser_critic"])
+        self.replay_buffer = checkpoint["optimiser_critic"]
+        self.global_step = checkpoint["global_step"]
+        print(f'Loading complete')
 
 
 class ReplayBuffer(object):
