@@ -48,14 +48,14 @@ class MultiAgent(object):
         self.action_size = action_size
         self.act_size = action_size * nb_agents
         self.state_size = state_size * nb_agents
-        self.l_agents = [Agent(config, state_size, action_size, rand_seed, self) for i in range(nb_agents)]
+        self.agents = [Agent(config, state_size, action_size, rand_seed, self) for i in range(nb_agents)]
 
     def step(self, states, actions, rewards, next_states, dones):
         # self.memory.add((states[0],actions[0],rewards[0],next_states[0],dones[0],states[1],actions[1],states[1]))
         # self.l_agents[0].step()
         # self.memory.add((states[1], actions[1], rewards[1], next_states[1], dones[1], states[0], actions[0], states[0]))
         # self.l_agents[1].step()
-        experience = zip(self.l_agents, states, actions, rewards, next_states, dones)
+        experience = zip(self.agents, states, actions, rewards, next_states, dones)
         for i, e in enumerate(experience):
             agent, state, action, reward, next_state, done = e
             na_filtered = self.na_idx[self.na_idx != i]
@@ -66,22 +66,22 @@ class MultiAgent(object):
             agent.step()
 
     def act(self, states, add_noise=True):
-        actions1: torch.Tensor = self.l_agents[0].act(states[0], add_noise)
-        actions2: torch.Tensor = self.l_agents[1].act(states[1], add_noise)
+        actions1: torch.Tensor = self.agents[0].act(states[0], add_noise)
+        actions2: torch.Tensor = self.agents[1].act(states[1], add_noise)
         actions = torch.stack([actions1, actions2], dim=0)
         return actions
 
     def reset(self):
-        for agent in self.l_agents:
+        for agent in self.agents:
             agent.reset()
 
     def save(self, path, episode):
-        for agent in self.l_agents:
-            agent.save(path, episode)
+        for i, agent in enumerate(self.agents):
+            agent.save(path + str(i), episode)
 
     def load(self, path):
-        for agent in self.l_agents:
-            agent.load(path)
+        for i, agent in enumerate(self.agents):
+            agent.load(path + str(i))
 
 
 class Agent(object):
