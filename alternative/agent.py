@@ -21,11 +21,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 import pdb
-
-try:
-    from alternative.agent_utils import param_table, Actor, Critic
-except:
-    from .agent_utils import param_table, Actor, Critic
+from alternative import param_table
+from alternative.models import Actor,Critic
 
 '''
 Begin help functions and variables
