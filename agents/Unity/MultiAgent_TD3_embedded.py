@@ -50,7 +50,6 @@ class MultiAgentTD3(GenericAgent):
         self.train_every = config.train_every
         self.train_n_times = config.train_n_times
         self.log_dir = config.log_dir if constants.log_dir in config else None
-        self.n_step_td = config.n_step_td
         self.use_noise = config.use_noise if constants.use_noise in config else False
         self.noise_scheduler: Scheduler = config.noise_scheduler if constants.noise_scheduler in config else None
         self.learn_start: int = config.learn_start if config.learn_start is not None else 0
@@ -74,7 +73,6 @@ class MultiAgentTD3(GenericAgent):
         self.optimiser_critic1 = config.optimiser_critic_fn(self.critic1)
         self.optimiser_critic2 = config.optimiser_critic_fn(self.critic2)
         self.replay_buffer = ExperienceReplayMemory(config.buffer_size)
-        self.td_buffer = TDBuffer(n_steps=self.n_step_td, gamma=self.gamma, memory=self.replay_buffer, evaluate_fn=lambda *args: 1.0, device=self.device)
         self.global_step = 0
         self.writer = config.summary_writer_fn() if config.summary_writer_fn else None
         self.noise = OUNoise(self.action_size, config.seed)
@@ -126,10 +124,7 @@ class MultiAgentTD3(GenericAgent):
         queue = deque(maxlen=self.n_agents)
         for i in range(self.n_agents):
             queue.append((states[i], actions[i], rewards[i], dones[i], next_states[i]))
-        # for i in range(self.n_agents):
-        #     self.agents[i].step(list(queue))
-        #     queue.rotate(1)  # rotate by 1 so it basically shifts the point of view
-        self.td_buffer.add(list(queue))
+        self.replay_buffer.add(list(queue))
         self.global_step = (self.global_step + 1)
         if self.global_step % self.train_every == 0:
             if len(self.replay_buffer) >= self.batch_size:  # and self.global_step >= self.learn_start
@@ -170,10 +165,10 @@ class MultiAgentTD3(GenericAgent):
         next_states_next_actions_size = next_states_next_actions.size()
         target_Q1_1, target_Q2_1 = self.target_critic1(next_states_next_actions.view(next_states_next_actions_size[0], -1))
         target_Q1_2, target_Q2_2 = self.target_critic2(next_states_next_actions.view(next_states_next_actions_size[0], -1))
-        target_Q_1 = torch.min(target_Q1_1, target_Q2_1)  # takes the minimum of the two critics
-        target_Q_2 = torch.min(target_Q1_2, target_Q2_2)  # takes the minimum of the two critics
-        y_1 = rewards[:, 0] + (self.gamma ** self.n_step_td * target_Q_1 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
-        y_2 = rewards[:, 1] + (self.gamma ** self.n_step_td * target_Q_2 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
+        target_Q_1 = target_Q1_1#torch.min(target_Q1_1, target_Q2_1)  # takes the minimum of the two critics
+        target_Q_2 = target_Q2_1#torch.min(target_Q1_2, target_Q2_2)  # takes the minimum of the two critics
+        y_1 = rewards[:, 0] + (self.gamma * target_Q_1 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
+        y_2 = rewards[:, 1] + (self.gamma * target_Q_2 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
         Qs_a1_1, Qs_a2_1 = self.critic1(state_action.view(state_action.size()[0], -1))
         Qs_a1_2, Qs_a2_2 = self.critic2(state_action.view(state_action.size()[0], -1))
         # update critic

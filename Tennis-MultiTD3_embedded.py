@@ -65,7 +65,7 @@ def main():
     config.train_n_times = 2
     config.n_step_td = 1
     config.ending_condition = ending_condition
-    config.learn_start = config.max_t  # training starts after this many transitions
+    config.learn_start = 0  # training starts after this many transitions
     config.evaluate_every = 100
     config.use_noise = True
     config.use_priority = False
