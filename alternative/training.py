@@ -19,22 +19,31 @@ import pdb
 import torch
 from alternative.make_env import make
 
-
 '''
 Begin help functions and variables
 '''
-
-DATA_PREFIX = '../../data/2018-10-07-'
 SOLVED = False
-
 
 '''
 End help functions and variables
 '''
 
 if __name__ == '__main__':
-    env = make()
 
+    seed = 2
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    worker_id = 1
+    print(f'Worker_id={worker_id}')
+    env = UnityEnvironment("../environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
+    num_agents = 2
+    brain = env.brains[env.brain_names[0]]
+    env_info = env.reset(train_mode=True)[env.brain_names[0]]
+    n_agents = len(env_info.agents)
+    print('Number of agents:', n_agents)
+    action_size = brain.vector_action_space_size
+    state_size = brain.vector_observation_space_size
+    state_multiplier = brain.num_stacked_vector_observations
     # from drlnd.ddpg_agent import Agent
     episodes = 10000
     rand_seed = 0
@@ -45,7 +54,7 @@ if __name__ == '__main__':
     scores_window = deque(maxlen=100)  # last 100 scores
 
     Agent = MultiAgent
-    agent = Agent(env.state_size, env.action_size, env.num_agents, rand_seed)
+    agent = Agent(state_size * state_multiplier, action_size, num_agents, rand_seed)
 
     print('\n')
     print(PARAMS)
@@ -59,11 +68,16 @@ if __name__ == '__main__':
 
     print('\nTRAINING:')
     for episode in range(episodes):
-        states = env.reset()
+        env_info = env.reset(train_mode=True)[env.brain_names[0]]
+        states = env_info.vector_observations
         score = np.zeros(len(agent))
         for i in range(1000):
             actions = agent.act(states, add_noise=True)
-            next_states, rewards, dones = env.step(actions)
+            env_info = env.step(actions)[env.brain_names[0]]
+            next_states = env_info.vector_observations
+            rewards = env_info.rewards
+            dones = env_info.local_done
+            # next_states, rewards, dones = env.step(actions)
             agent.step(states, actions, rewards, next_states, dones)
             score += rewards
             states = next_states
@@ -85,26 +99,10 @@ if __name__ == '__main__':
             s_msg += 'Score: {:.3f}\tσ: {:.3f}'
             print(s_msg.format(episode, np.mean(scores_window),
                                np.std(scores_window)))
-            # save the models
-            s_name = agent.__name__
-            s_aux = '%scheckpoint-%s.%s.%i.pth'
-            for ii in range(len(agent)):
-                s_actor_path = s_aux % (DATA_PREFIX, s_name, 'actor', ii)
-                s_critic_path = s_aux % (DATA_PREFIX, s_name, 'critic', ii)
-                torch.save(agent[ii].actor_local.state_dict(), s_actor_path)
-                torch.save(agent[ii].critic_local.state_dict(), s_critic_path)
-            break
+            # todo save the models
 
     # save data to use later
     if not SOLVED:
         s_msg = '\n\nEnvironment not solved =/'
         print(s_msg.format(episode, np.mean(scores_window),
-              np.std(scores_window)))
-    print('\n')
-    d_data = {'episodes': episode,
-              'scores': scores,
-              'scores_std': scores_std,
-              'scores_avg': scores_avg,
-              'scores_window': scores_window}
-    s_aux = '%ssim-data-%s.data'
-    pickle.dump(d_data, open(s_aux % (DATA_PREFIX, agent.__name__), 'wb'))
+                           np.std(scores_window)))
