@@ -29,7 +29,6 @@ from alternative.models import Actor, Critic
 from utility.noise import OUNoise
 
 
-
 class MultiAgent(object):
     '''
     '''
@@ -44,31 +43,24 @@ class MultiAgent(object):
         '''
         self.config = config
         # Replay memory
-        self.memory = ReplayBuffer(config, action_size, self.config.BUFFER_SIZE,
-                                   self.config.BATCH_SIZE, rand_seed)
-        self.__name__ = 'MADDPG'
+        self.memory = ReplayBuffer(config, action_size, self.config.BUFFER_SIZE, self.config.BATCH_SIZE, rand_seed)
         self.nb_agents = nb_agents
         self.na_idx = np.arange(self.nb_agents)
         self.action_size = action_size
         self.act_size = action_size * nb_agents
         self.state_size = state_size * nb_agents
-        self.l_agents = [Agent(config, state_size,
-                               action_size,
-                               rand_seed,
-                               self)
-                         for i in range(nb_agents)]
+        self.l_agents = [Agent(config, state_size, action_size, rand_seed, self) for i in range(nb_agents)]
 
     def step(self, states, actions, rewards, next_states, dones):
-        experience = zip(self.l_agents, states, actions, rewards, next_states,
-                         dones)
+        experience = zip(self.l_agents, states, actions, rewards, next_states, dones)
         for i, e in enumerate(experience):
             agent, state, action, reward, next_state, done = e
             na_filtered = self.na_idx[self.na_idx != i]
             others_states = states[na_filtered]
             others_actions = actions[na_filtered]
             others_next_states = next_states[na_filtered]
-            agent.step(state, action, reward, next_state, done, others_states,
-                       others_actions, others_next_states)
+            self.memory.add(state, action, reward, next_state, done, others_states, others_actions, others_next_states)
+            agent.step()
 
     def act(self, states, add_noise=True):
         na_rtn = np.zeros([self.nb_agents, self.action_size])
@@ -79,12 +71,6 @@ class MultiAgent(object):
     def reset(self):
         for agent in self.l_agents:
             agent.reset()
-
-    def __len__(self):
-        return self.nb_agents
-
-    def __getitem__(self, key):
-        return self.l_agents[key]
 
 
 class Agent(object):
@@ -108,21 +94,13 @@ class Agent(object):
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size, rand_seed).to(self.config.DEVC)
         self.actor_target = Actor(state_size, action_size, rand_seed).to(self.config.DEVC)
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(),
-                                          lr=self.config.LR_ACTOR)
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.config.LR_ACTOR)
 
         # Critic Network (w/ Target Network)
-        self.critic_local = Critic(state_size,
-                                   action_size,
-                                   meta_agent.nb_agents,
-                                   rand_seed).to(self.config.DEVC)
-        self.critic_target = Critic(state_size,
-                                    action_size,
-                                    meta_agent.nb_agents,
-                                    rand_seed).to(self.config.DEVC)
+        self.critic_local = Critic(state_size, action_size, meta_agent.nb_agents, rand_seed).to(self.config.DEVC)
+        self.critic_target = Critic(state_size, action_size, meta_agent.nb_agents, rand_seed).to(self.config.DEVC)
 
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(),
-                                           lr=self.config.LR_CRITIC)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.config.LR_CRITIC)
 
         # Noise process
         self.noise = OUNoise(action_size, rand_seed)
@@ -133,10 +111,7 @@ class Agent(object):
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
 
-    def step(self, state, action, reward, next_state, done, others_states,
-             others_actions, others_next_states):
-        self.memory.add(state, action, reward, next_state, done, others_states,
-                        others_actions, others_next_states)
+    def step(self):
 
         # Learn every UPDATE_EVERY time steps.
         self.t_step = (self.t_step + 1) % self.config.UPDATE_EVERY
@@ -146,7 +121,16 @@ class Agent(object):
             if len(self.memory) > self.config.BATCH_SIZE:
                 # source: Sample a random minibatch of N transitions from R
                 experiences = self.memory.sample()
-                self.learn(experiences, self.config.GAMMA)
+                states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(self.config.DEVC)
+                actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(self.config.DEVC)
+                rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(self.config.DEVC)
+                next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(self.config.DEVC)
+                dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(self.config.DEVC)
+
+                others_states = torch.from_numpy(np.vstack([e.others_states for e in experiences if e is not None])).float().to(self.config.DEVC)
+                others_actions = torch.from_numpy(np.vstack([e.others_actions for e in experiences if e is not None])).float().to(self.config.DEVC)
+                others_next_states = torch.from_numpy(np.vstack([e.others_next_states for e in experiences if e is not None])).float().to(self.config.DEVC)
+                self.learn((states, actions, rewards, next_states, dones, others_states, others_actions, others_next_states), self.config.GAMMA)
 
     def act(self, states, add_noise=True):
         '''Returns actions for given states as per current policy.
@@ -253,7 +237,6 @@ class ReplayBuffer(object):
         self.config = config
         self.action_size = action_size
         self.memory = deque(maxlen=buffer_size)
-        self.batch_size = batch_size
         self.experience = namedtuple("Experience",
                                      field_names=["state", "action", "reward",
                                                   "next_state", "done",
@@ -265,37 +248,12 @@ class ReplayBuffer(object):
     def add(self, state, action, reward, next_state, done, others_states,
             others_actions, others_next_states):
         '''Add a new experience to memory.'''
-        e = self.experience(state, action, reward, next_state, done,
-                            others_states, others_actions, others_next_states)
+        e = self.experience(state, action, reward, next_state, done, others_states, others_actions, others_next_states)
         self.memory.append(e)
 
-    def sample(self):
+    def sample(self,batch_size):
         '''Randomly sample a batch of experiences from memory.'''
-        experiences = random.sample(self.memory, k=self.batch_size)
-
-        states = torch.from_numpy(np.vstack([e.state for e in experiences
-                                             if e is not None])).float().to(self.config.DEVC)
-        actions = torch.from_numpy(np.vstack([e.action for e in experiences
-                                              if e is not None])).float().to(self.config.DEVC)
-        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences
-                                              if e is not None])).float().to(self.config.DEVC)
-        next_states = torch.from_numpy(np.vstack([e.next_state
-                                                  for e in experiences
-                                                  if e is not None])).float().to(self.config.DEVC)
-        dones = torch.from_numpy(np.vstack([e.done for e in experiences
-                                            if e is not None]).astype(np.uint8)).float().to(self.config.DEVC)
-
-        others_states = torch.from_numpy(np.vstack([e.others_states for e in experiences
-                                                    if e is not None])).float().to(self.config.DEVC)
-        others_actions = torch.from_numpy(np.vstack([e.others_actions for e in experiences
-                                                     if e is not None])).float().to(self.config.DEVC)
-        others_next_states = torch.from_numpy(np.vstack([e.others_next_states
-                                                         for e in experiences
-                                                         if e is not None])).float().to(self.config.DEVC)
-
-        return (states, actions, rewards, next_states, dones, others_states,
-                others_actions, others_next_states)
+        return random.sample(self.memory, k=batch_size)
 
     def __len__(self):
-        '''Return the current size of internal memory.'''
         return len(self.memory)
