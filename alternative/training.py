@@ -53,6 +53,7 @@ if __name__ == '__main__':
     config = DefaultMunch()
     config.seed = seed
     config.n_episodes = 40000
+    config.max_t = 1000
     rand_seed = 0
 
     scores = []
@@ -66,19 +67,16 @@ if __name__ == '__main__':
     print('\n')
     print(PARAMS)
 
-    print('\nNN ARCHITECURES:')
-    for ii in range(len(agent)):
-        print('agent %i:' % (ii + 1))
-        print(agent[ii].actor_local)
-        print(agent[ii].critic_local)
-        print('\n')
-
     print('\nTRAINING:')
-    for episode in range(config.n_episodes):
-        env_info = env.reset(train_mode=True)[env.brain_names[0]]
-        states = env_info.vector_observations
-        score = np.zeros(len(agent))
-        for i in range(1000):
+    # start the training
+    global_steps = 0
+    noise_scheduler = config.noise_scheduler
+    for i_episode in range(config.n_episodes):
+        env_info = env.reset(train_mode=True)[env.brain_names[0]]  # reset the environment
+        states = env_info.vector_observations  # torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the current state
+        score = 0
+        # noise_magnitude = noise_scheduler.get(global_steps)
+        for i in range(config.max_t):
             actions = agent.act(states, add_noise=True)
             env_info = env.step(actions)[env.brain_names[0]]
             next_states = env_info.vector_observations
@@ -86,30 +84,29 @@ if __name__ == '__main__':
             dones = env_info.local_done
             # next_states, rewards, dones = env.step(actions)
             agent.step(states, actions, rewards, next_states, dones)
-            score += rewards
+            global_steps += 1
+            score += np.max(rewards)
             states = next_states
             if np.any(dones):
                 break
-        scores.append(np.max(score))
-        scores_window.append(np.max(score))
-        scores_avg.append(np.mean(scores_window))
+        scores.append(score)
+        scores_window.append(score)
         scores_std.append(np.std(scores_window))
+        scores_avg.append(np.mean(scores_window))
+        writer.add_scalar('data/score', score, i_episode)
+        writer.add_scalar('data/score_average', np.mean(scores_window), i_episode)
+        writer.add_scalar('data/score_max', np.max(scores_window), i_episode)
+        writer.add_scalar('data/score_min', np.min(scores_window), i_episode)
+        writer.add_scalar('data/score_std', np.std(scores_window), i_episode)
         s_msg = '\rEpisode {}\tAverage Score: {:.3f}\tσ: {:.3f}\tScore: {:.3f}'
-        print(s_msg.format(episode, np.mean(scores_window),
-                           np.std(scores_window), np.max(score)), end="")
-        if episode % 100 == 0:
-            print(s_msg.format(episode, np.mean(scores_window),
-                               np.std(scores_window), np.max(score)))
+        print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), np.max(score)), end="")
+        if i_episode % 100 == 0:
+            print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), np.max(score)))
+            # agent.save(os.path.join(log_dir, f"checkpoint_{i_episode}.pth"), i_episode)
         if np.mean(scores_window) >= 0.5:
             SOLVED = True
-            s_msg = '\n\nEnvironment solved in {:d} episodes!\tAverage '
-            s_msg += 'Score: {:.3f}\tσ: {:.3f}'
-            print(s_msg.format(episode, np.mean(scores_window),
-                               np.std(scores_window)))
-            # todo save the models
-
-    # save data to use later
-    if not SOLVED:
-        s_msg = '\n\nEnvironment not solved =/'
-        print(s_msg.format(episode, np.mean(scores_window),
-                           np.std(scores_window)))
+            s_msg = '\n\nEnvironment solved in {:d} episodes!\tAverage Score: {:.3f}\tσ: {:.3f}'
+            print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window)))
+            # agent.save(os.path.join(log_dir, f"checkpoint_success.pth"), i_episode)
+            break
+    print("Finished.")
