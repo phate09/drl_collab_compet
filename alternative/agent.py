@@ -65,7 +65,7 @@ class MultiAgent(object):
     def act(self, states, add_noise=True):
         na_rtn = np.zeros([self.nb_agents, self.action_size])
         for idx, agent in enumerate(self.l_agents):
-            na_rtn[idx, :] = agent.act(states[idx], add_noise)
+            na_rtn[idx, :] = agent.act(states[idx], add_noise).cpu().numpy()
         return na_rtn
 
     def reset(self):
@@ -142,13 +142,16 @@ class Agent(object):
         states = torch.from_numpy(states).float().to(self.config.DEVC)
         self.actor_local.eval()
         with torch.no_grad():
-            actions = self.actor_local(states).cpu().data.numpy()
+            actions = self.actor_local(states)
         self.actor_local.train()
         # source: Select action at = μ(st|θμ) + Nt according to the current
         # policy and exploration noise
         if add_noise:
-            actions += self.noise.sample()
-        return np.clip(actions, -1, 1)
+            sample_np = self.noise.sample()
+            sample = torch.tensor(sample_np, dtype=torch.float, device=self.config.DEVC)
+            actions += sample
+        clipped = torch.clamp(actions, -1, 1)
+        return clipped
 
     def reset(self):
         self.noise.reset()

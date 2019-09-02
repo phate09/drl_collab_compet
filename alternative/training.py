@@ -16,6 +16,7 @@ from munch import Munch, DefaultMunch
 from tensorboardX import SummaryWriter
 from alternative import param_table
 import random
+
 '''
 Begin help functions and variables
 '''
@@ -56,7 +57,6 @@ if __name__ == '__main__':
     print(f"logging to {log_dir}")
     writer = SummaryWriter(log_dir=log_dir)
 
-    # config2 = set_global_parms(yaml.load(open(PATH, 'r'))['DDPG'])
     config = DefaultMunch()
     config.seed = seed
     config.n_episodes = 40000
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     config.TAU = 0.001  # for soft update of targt params
     config.LR_ACTOR = 0.0001  # learning rate of the actor
     config.LR_CRITIC = 0.001  # learning rate of the critic
-    config.WEIGHT_DECAY = 0.0001 # L2 weight decay
+    config.WEIGHT_DECAY = 0.0001  # L2 weight decay
     config.UPDATE_EVERY = 2  # steps to update
     config.DEVC = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     config_file = open(os.path.join(log_dir, "config.json"), "w+")
@@ -79,7 +79,7 @@ if __name__ == '__main__':
     scores_avg = []
     scores_window = deque(maxlen=100)  # last 100 scores
 
-    agent = MultiAgent(config,state_size * state_multiplier, action_size, n_agents, rand_seed)
+    agent = MultiAgent(config, state_size * state_multiplier, action_size, n_agents, rand_seed)
 
     print('\nTRAINING:')
     # start the training
