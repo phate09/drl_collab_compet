@@ -1,4 +1,6 @@
-from alternative.agent import MultiAgent, PARAMS
+import yaml
+
+from alternative.agent import MultiAgent
 from unityagents import UnityEnvironment
 import os
 from collections import deque
@@ -9,11 +11,41 @@ import torch
 import torch.optim as optim
 from munch import Munch, DefaultMunch
 from tensorboardX import SummaryWriter
+from alternative import param_table
 
 '''
 Begin help functions and variables
 '''
 SOLVED = False
+
+
+def set_global_parms(d_table)->DefaultMunch:
+    '''
+    convert statsmodel tabel to the agent parameters
+
+    :param d_table: Dictionary. Parameters of the agent
+    '''
+    l_table = [(a, [b]) for a, b in d_table.items()]
+    d_params = dict([[x[0], x[1][0]] for x in l_table])
+    table = param_table.generate_table(l_table[:int(len(l_table) / 2)],
+                                       l_table[int(len(l_table) / 2):],
+                                       'DDPG PARAMETERS')
+    config = DefaultMunch()
+    config.BUFFER_SIZE = d_params['BUFFER_SIZE']  # replay buffer size
+    config.BATCH_SIZE = d_params['BATCH_SIZE']  # minibatch size
+    config.GAMMA = d_params['GAMMA']  # discount factor
+    config.TAU = d_params['TAU']  # for soft update of targt params
+    config.LR_ACTOR = d_params['LR_ACTOR']  # learning rate of the actor
+    config.LR_CRITIC = d_params['LR_CRITIC']  # learning rate of the critic
+    config.WEIGHT_DECAY = d_params['WEIGHT_DECAY']  # L2 weight decay
+    config.UPDATE_EVERY = d_params['UPDATE_EVERY']  # steps to update
+    config.DEVC = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    config.PARAMS = table
+    return config
+
+
+# PATH = os.path.dirname(os.path.realpath(__file__))
+PATH = "/home/edoardo/Development/drl_collab_compet/alternative/config.yaml"  # PATH.replace('ddpg', 'config.yaml')
 
 '''
 End help functions and variables
@@ -50,22 +82,20 @@ if __name__ == '__main__':
     print(f"logging to {log_dir}")
     writer = SummaryWriter(log_dir=log_dir)
 
+    config2 = set_global_parms(yaml.load(open(PATH, 'r'))['DDPG'])
     config = DefaultMunch()
     config.seed = seed
     config.n_episodes = 40000
     config.max_t = 1000
     rand_seed = 0
-
+    config.update(config2)
     scores = []
     scores_std = []
     scores_avg = []
     scores_window = deque(maxlen=100)  # last 100 scores
 
     Agent = MultiAgent
-    agent = Agent(state_size * state_multiplier, action_size, n_agents, rand_seed)
-
-    print('\n')
-    print(PARAMS)
+    agent = Agent(config,state_size * state_multiplier, action_size, n_agents, rand_seed)
 
     print('\nTRAINING:')
     # start the training

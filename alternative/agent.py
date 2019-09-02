@@ -21,63 +21,20 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 import pdb
+
+from munch import DefaultMunch
+
 from alternative import param_table
-from alternative.models import Actor,Critic
+from alternative.models import Actor, Critic
+from utility.noise import OUNoise
 
-'''
-Begin help functions and variables
-'''
-BUFFER_SIZE = None
-BATCH_SIZE = None
-GAMMA = None
-TAU = None
-LR_ACTOR = None
-LR_CRITIC = None
-WEIGHT_DECAY = None
-UPDATE_EVERY = None
-DEVC = None
-PARAMS = None
-
-
-def set_global_parms(d_table):
-    '''
-    convert statsmodel tabel to the agent parameters
-
-    :param d_table: Dictionary. Parameters of the agent
-    '''
-    global BUFFER_SIZE, BATCH_SIZE, GAMMA, TAU, LR_ACTOR, LR_CRITIC
-    global WEIGHT_DECAY, UPDATE_EVERY, DEVC, PARAMS
-    l_table = [(a, [b]) for a, b in d_table.items()]
-    d_params = dict([[x[0], x[1][0]] for x in l_table])
-    table = param_table.generate_table(l_table[:int(len(l_table) / 2)],
-                                       l_table[int(len(l_table) / 2):],
-                                       'DDPG PARAMETERS')
-    BUFFER_SIZE = d_params['BUFFER_SIZE']  # replay buffer size
-    BATCH_SIZE = d_params['BATCH_SIZE']  # minibatch size
-    GAMMA = d_params['GAMMA']  # discount factor
-    TAU = d_params['TAU']  # for soft update of targt params
-    LR_ACTOR = d_params['LR_ACTOR']  # learning rate of the actor
-    LR_CRITIC = d_params['LR_CRITIC']  # learning rate of the critic
-    WEIGHT_DECAY = d_params['WEIGHT_DECAY']  # L2 weight decay
-    UPDATE_EVERY = d_params['UPDATE_EVERY']  # steps to update
-    DEVC = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    PARAMS = table
-
-
-# PATH = os.path.dirname(os.path.realpath(__file__))
-PATH = "/home/edoardo/Development/drl_collab_compet/alternative/config.yaml"  # PATH.replace('ddpg', 'config.yaml')
-set_global_parms(yaml.load(open(PATH, 'r'))['DDPG'])
-
-'''
-End help functions and variables
-'''
 
 
 class MultiAgent(object):
     '''
     '''
 
-    def __init__(self, state_size, action_size, nb_agents, rand_seed):
+    def __init__(self, config: DefaultMunch, state_size, action_size, nb_agents, rand_seed):
         '''Initialize an MultiAgent object.
 
         :param state_size: int. dimension of each state
@@ -85,16 +42,17 @@ class MultiAgent(object):
         :param nb_agents: int. number of agents to use
         :param rand_seed: int. random seed
         '''
+        self.config = config
         # Replay memory
-        self.memory = ReplayBuffer(action_size, BUFFER_SIZE,
-                                   BATCH_SIZE, rand_seed)
+        self.memory = ReplayBuffer(config, action_size, self.config.BUFFER_SIZE,
+                                   self.config.BATCH_SIZE, rand_seed)
         self.__name__ = 'MADDPG'
         self.nb_agents = nb_agents
         self.na_idx = np.arange(self.nb_agents)
         self.action_size = action_size
         self.act_size = action_size * nb_agents
         self.state_size = state_size * nb_agents
-        self.l_agents = [Agent(state_size,
+        self.l_agents = [Agent(config, state_size,
                                action_size,
                                rand_seed,
                                self)
@@ -135,7 +93,7 @@ class Agent(object):
     environment
     '''
 
-    def __init__(self, state_size, action_size, rand_seed, meta_agent):
+    def __init__(self, config1: DefaultMunch, state_size, action_size, rand_seed, meta_agent):
         '''Initialize an MetaAgent object.
 
         :param state_size: int. dimension of each state
@@ -144,28 +102,27 @@ class Agent(object):
         :param rand_seed: int. random seed
         :param memory: ReplayBuffer object.
         '''
-
+        self.config = config1
         self.action_size = action_size
-        self.__name__ = 'DDPG'
 
         # Actor Network (w/ Target Network)
-        self.actor_local = Actor(state_size, action_size, rand_seed).to(DEVC)
-        self.actor_target = Actor(state_size, action_size, rand_seed).to(DEVC)
+        self.actor_local = Actor(state_size, action_size, rand_seed).to(self.config.DEVC)
+        self.actor_target = Actor(state_size, action_size, rand_seed).to(self.config.DEVC)
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(),
-                                          lr=LR_ACTOR)
+                                          lr=self.config.LR_ACTOR)
 
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(state_size,
                                    action_size,
                                    meta_agent.nb_agents,
-                                   rand_seed).to(DEVC)
+                                   rand_seed).to(self.config.DEVC)
         self.critic_target = Critic(state_size,
                                     action_size,
                                     meta_agent.nb_agents,
-                                    rand_seed).to(DEVC)
-        # NOTE: the decay corresponds to L2 regularization
+                                    rand_seed).to(self.config.DEVC)
+
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(),
-                                           lr=LR_CRITIC)  # , weight_decay=WEIGHT_DECAY)
+                                           lr=self.config.LR_CRITIC)
 
         # Noise process
         self.noise = OUNoise(action_size, rand_seed)
@@ -182,14 +139,14 @@ class Agent(object):
                         others_actions, others_next_states)
 
         # Learn every UPDATE_EVERY time steps.
-        self.t_step = (self.t_step + 1) % UPDATE_EVERY
+        self.t_step = (self.t_step + 1) % self.config.UPDATE_EVERY
         if self.t_step == 0:
             # If enough samples are available in memory, get random subset
             # and learn
-            if len(self.memory) > BATCH_SIZE:
+            if len(self.memory) > self.config.BATCH_SIZE:
                 # source: Sample a random minibatch of N transitions from R
                 experiences = self.memory.sample()
-                self.learn(experiences, GAMMA)
+                self.learn(experiences, self.config.GAMMA)
 
     def act(self, states, add_noise=True):
         '''Returns actions for given states as per current policy.
@@ -197,7 +154,7 @@ class Agent(object):
         :param states: array_like. current states
         :param add_noise: Boolean. If should add noise to the action
         '''
-        states = torch.from_numpy(states).float().to(DEVC)
+        states = torch.from_numpy(states).float().to(self.config.DEVC)
         self.actor_local.eval()
         with torch.no_grad():
             actions = self.actor_local(states).cpu().data.numpy()
@@ -226,16 +183,16 @@ class Agent(object):
          others_actions, others_next_states) = experiences
         # rewards_ = torch.clamp(rewards, min=-1., max=1.)
         rewards_ = rewards
-        all_states = torch.cat((states, others_states), dim=1).to(DEVC)
-        all_actions = torch.cat((actions, others_actions), dim=1).to(DEVC)
-        all_next_states = torch.cat((next_states, others_next_states), dim=1).to(DEVC)
+        all_states = torch.cat((states, others_states), dim=1).to(self.config.DEVC)
+        all_actions = torch.cat((actions, others_actions), dim=1).to(self.config.DEVC)
+        all_next_states = torch.cat((next_states, others_next_states), dim=1).to(self.config.DEVC)
 
         # --------------------------- update critic ---------------------------
         # Get predicted next-state actions and Q values from target models
         l_all_next_actions = []
         l_all_next_actions.append(self.actor_target(states))
         l_all_next_actions.append(self.actor_target(others_states))
-        all_next_actions = torch.cat(l_all_next_actions, dim=1).to(DEVC)
+        all_next_actions = torch.cat(l_all_next_actions, dim=1).to(self.config.DEVC)
 
         Q_targets_next = self.critic_target(all_next_states, all_next_actions)
         # Compute Q targets for current states (y_i)
@@ -255,7 +212,7 @@ class Agent(object):
         this_actions_pred = self.actor_local(states)
         others_actions_pred = self.actor_local(others_states)
         others_actions_pred = others_actions_pred.detach()
-        actions_pred = torch.cat((this_actions_pred, others_actions_pred), dim=1).to(DEVC)
+        actions_pred = torch.cat((this_actions_pred, others_actions_pred), dim=1).to(self.config.DEVC)
         actor_loss = -self.critic_local(all_states, actions_pred).mean()
         # Minimize the loss
         self.actor_optimizer.zero_grad()
@@ -265,8 +222,8 @@ class Agent(object):
         # ---------------------- update target networks ----------------------
         # Update the critic target networks: θQ′ ←τθQ +(1−τ)θQ′
         # Update the actor target networks: θμ′ ←τθμ +(1−τ)θμ′
-        self.soft_update(self.critic_local, self.critic_target, TAU)
-        self.soft_update(self.actor_local, self.actor_target, TAU)
+        self.soft_update(self.critic_local, self.critic_target, self.config.TAU)
+        self.soft_update(self.actor_local, self.actor_target, self.config.TAU)
 
     def soft_update(self, local_model, target_model, tau):
         '''Soft update model parameters.
@@ -281,41 +238,11 @@ class Agent(object):
             tensor_aux = tau * local_param.data + (1.0 - tau) * target_param.data
             target_param.data.copy_(tensor_aux)
 
-    def reset(self):
-        self.noise.reset()
-
-
-class OUNoise:
-    """Ornstein-Uhlenbeck process."""
-
-    def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.2):
-        """Initialize parameters and noise process."""
-        self.mu = mu * np.ones(size)
-        self.size = size
-        self.theta = theta
-        self.sigma = sigma
-        self.seed = random.seed(seed)
-        self.reset()
-
-    def reset(self):
-        """Reset the internal state (= noise) to mean (mu)."""
-        self.state = copy.copy(self.mu)
-
-    def sample(self):
-        """Update internal state and return it as a noise sample."""
-        x = self.state
-        dx = self.theta * (self.mu - x)
-        # dx += self.sigma * np.random.rand(*self.size)  # Uniform disribution
-        dx += self.sigma * np.random.randn(self.size)  # normal distribution
-        # dx += self.sigma * np.array([random.random() for i in range(len(x))])
-        self.state = x + dx
-        return self.state
-
 
 class ReplayBuffer(object):
     '''Fixed-size buffer to store experience tuples.'''
 
-    def __init__(self, action_size, buffer_size, batch_size, seed):
+    def __init__(self, config: DefaultMunch, action_size, buffer_size, batch_size, seed):
         '''Initialize a ReplayBuffer object.
 
         :param action_size: int. dimension of each action
@@ -323,6 +250,7 @@ class ReplayBuffer(object):
         :param batch_size (int): size of each training batch
         :param seed (int): random seed
         '''
+        self.config = config
         self.action_size = action_size
         self.memory = deque(maxlen=buffer_size)
         self.batch_size = batch_size
@@ -346,24 +274,24 @@ class ReplayBuffer(object):
         experiences = random.sample(self.memory, k=self.batch_size)
 
         states = torch.from_numpy(np.vstack([e.state for e in experiences
-                                             if e is not None])).float().to(DEVC)
+                                             if e is not None])).float().to(self.config.DEVC)
         actions = torch.from_numpy(np.vstack([e.action for e in experiences
-                                              if e is not None])).float().to(DEVC)
+                                              if e is not None])).float().to(self.config.DEVC)
         rewards = torch.from_numpy(np.vstack([e.reward for e in experiences
-                                              if e is not None])).float().to(DEVC)
+                                              if e is not None])).float().to(self.config.DEVC)
         next_states = torch.from_numpy(np.vstack([e.next_state
                                                   for e in experiences
-                                                  if e is not None])).float().to(DEVC)
+                                                  if e is not None])).float().to(self.config.DEVC)
         dones = torch.from_numpy(np.vstack([e.done for e in experiences
-                                            if e is not None]).astype(np.uint8)).float().to(DEVC)
+                                            if e is not None]).astype(np.uint8)).float().to(self.config.DEVC)
 
         others_states = torch.from_numpy(np.vstack([e.others_states for e in experiences
-                                                    if e is not None])).float().to(DEVC)
+                                                    if e is not None])).float().to(self.config.DEVC)
         others_actions = torch.from_numpy(np.vstack([e.others_actions for e in experiences
-                                                     if e is not None])).float().to(DEVC)
+                                                     if e is not None])).float().to(self.config.DEVC)
         others_next_states = torch.from_numpy(np.vstack([e.others_next_states
                                                          for e in experiences
-                                                         if e is not None])).float().to(DEVC)
+                                                         if e is not None])).float().to(self.config.DEVC)
 
         return (states, actions, rewards, next_states, dones, others_states,
                 others_actions, others_next_states)
