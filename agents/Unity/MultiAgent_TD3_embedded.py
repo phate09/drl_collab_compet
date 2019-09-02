@@ -142,7 +142,7 @@ class MultiAgentTD3(GenericAgent):
         for i in range(self.train_n_times):
             beta = (self.beta_end - self.beta_start) * (i_episode - self.learn_start) / (self.n_episodes - self.learn_start) + self.beta_start
             experiences, is_values, indexes = self.replay_buffer.sample(self.batch_size, beta=beta)
-            states, actions, rewards, dones, next_states = zip(*experiences)
+            states, actions, rewards, next_states, dones = zip(*[list(zip(*experience)) for experience in experiences])
             states = torch.stack([torch.stack(state) for state in states])
             actions = torch.stack([torch.stack(action) for action in actions])
             rewards = torch.stack([torch.stack(reward) for reward in rewards])
@@ -165,8 +165,8 @@ class MultiAgentTD3(GenericAgent):
         next_states_next_actions_size = next_states_next_actions.size()
         target_Q1_1, target_Q2_1 = self.target_critic1(next_states_next_actions.view(next_states_next_actions_size[0], -1))
         target_Q1_2, target_Q2_2 = self.target_critic2(next_states_next_actions.view(next_states_next_actions_size[0], -1))
-        target_Q_1 = target_Q1_1#torch.min(target_Q1_1, target_Q2_1)  # takes the minimum of the two critics
-        target_Q_2 = target_Q2_1#torch.min(target_Q1_2, target_Q2_2)  # takes the minimum of the two critics
+        target_Q_1 = target_Q1_1  # torch.min(target_Q1_1, target_Q2_1)  # takes the minimum of the two critics
+        target_Q_2 = target_Q2_1  # torch.min(target_Q1_2, target_Q2_2)  # takes the minimum of the two critics
         y_1 = rewards[:, 0] + (self.gamma * target_Q_1 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
         y_2 = rewards[:, 1] + (self.gamma * target_Q_2 * dones.unsqueeze(dim=1))  # sets 0 to the entries which are done
         Qs_a1_1, Qs_a2_1 = self.critic1(state_action.view(state_action.size()[0], -1))

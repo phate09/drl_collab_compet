@@ -16,6 +16,7 @@ from agents.Unity.MultiAgent_TD3_embedded import MultiAgentTD3
 from networks.actor_critic.Policy_actor import Policy_actor
 from networks.actor_critic.Policy_critic_twin import Policy_critic
 from utility.Scheduler import Scheduler
+from utility.ranger import Ranger
 
 
 def main():
@@ -42,8 +43,8 @@ def main():
     actor_fn = lambda: Policy_actor(state_size * state_multiplier, action_size, hidden_layer_size=200).to(device)
     critic_fn = lambda: Policy_critic((state_size * state_multiplier + action_size) * n_agents, hidden_layer_size=200).to(device)
     # actor1.test(device)
-    optimiser_actor_fn = lambda actor: optim.Adam(actor.parameters(), lr=1e-4)
-    optimiser_critic_fn = lambda critic: optim.Adam(critic.parameters(), lr=1e-4)
+    optimiser_actor_fn = lambda actor: Ranger(actor.parameters(), lr=1e-4)
+    optimiser_critic_fn = lambda critic: Ranger(critic.parameters(), lr=1e-4)
     ending_condition = lambda result: result['mean'] >= 300.0
     log_dir = os.path.join('runs', current_time + '_' + comment)
     os.mkdir(log_dir)
@@ -62,10 +63,10 @@ def main():
     config.tau = 0.005  # soft merge
     config.device = device
     config.train_every = 4
-    config.train_n_times = 2
+    config.train_n_times = 1
     config.n_step_td = 1
     config.ending_condition = ending_condition
-    config.learn_start = 0  # training starts after this many transitions
+    config.learn_start = config.max_t  # training starts after this many transitions
     config.evaluate_every = 100
     config.use_noise = True
     config.use_priority = False
