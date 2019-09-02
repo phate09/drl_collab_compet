@@ -72,7 +72,7 @@ class MultiAgentTD3(GenericAgent):
         self.optimiser_actor2 = config.optimiser_actor_fn(self.actor2)
         self.optimiser_critic1 = config.optimiser_critic_fn(self.critic1)
         self.optimiser_critic2 = config.optimiser_critic_fn(self.critic2)
-        self.replay_buffer = ExperienceReplayMemory(config.buffer_size)
+        self.replay_buffer = PrioritizedReplayBuffer(config.buffer_size) if config.use_priority else ExperienceReplayMemory(config.buffer_size)
         self.global_step = 0
         self.writer = config.summary_writer_fn() if config.summary_writer_fn else None
         self.noise = OUNoise(self.action_size, config.seed)
@@ -110,8 +110,8 @@ class MultiAgentTD3(GenericAgent):
                 actions2: torch.Tensor = self.actor2(states[1])
                 actions = torch.stack([actions1, actions2], dim=0)
                 if noise_magnitude != 0:
-                    # noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude).clamp(-self.max_action / 2, self.max_action / 2).to(device=self.device)  # adds exploratory noise
-                    noise = torch.tensor(self.noise.sample(), dtype=torch.float, device=self.device)
+                    noise = torch.normal(torch.zeros_like(actions), torch.ones_like(actions) * noise_magnitude).clamp(-self.max_action, self.max_action).to(device=self.device)  # adds exploratory noise
+                    # noise = torch.tensor(self.noise.sample(), dtype=torch.float, device=self.device)
                 else:
                     noise = torch.zeros_like(actions)
                 actions = torch.clamp(actions + noise, -self.max_action, self.max_action).to(self.device)  # clips the action to the allowed boundaries

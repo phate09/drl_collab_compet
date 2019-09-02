@@ -85,7 +85,7 @@ def main():
     # config_file.write(json.dumps(json.loads(jsonpickle.encode(config, unpicklable=False, max_depth=1)), indent=4, sort_keys=True))
     # config_file.close()
     agent = MultiAgentTD3(config)
-    agent.load("runs/Sep01_17-48-13_TD3 Embedded Unity Tennis/checkpoint_1000.pth")
+    agent.load("runs/Sep02_12-18-14_TD3 Embedded Unity Tennis/checkpoint_1300.pth")
     scores = []  # list containing scores from each episode
     scores_std = []
     scores_avg = []
