@@ -3,7 +3,7 @@ import json
 import jsonpickle
 import yaml
 
-from alternative.agent import MultiAgent
+from alternative.MultiAgent import MultiAgent
 from unityagents import UnityEnvironment
 import os
 from collections import deque
@@ -77,7 +77,7 @@ if __name__ == '__main__':
     scores_avg = []
     scores_window = deque(maxlen=100)  # last 100 scores
 
-    agent = MultiAgent(config, state_size * state_multiplier, action_size, n_agents, rand_seed)
+    agent = MultiAgent(config, state_size * state_multiplier, action_size, rand_seed)
 
     print('\nTRAINING:')
     # start the training

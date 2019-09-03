@@ -3,7 +3,7 @@ import json
 import jsonpickle
 import yaml
 
-from alternative.agent import MultiAgent
+from alternative.MultiAgent import MultiAgent
 from unityagents import UnityEnvironment
 import os
 from collections import deque
@@ -66,6 +66,7 @@ if __name__ == '__main__':
     config.tau = 0.001  # for soft update of targt params
     config.lr_actor = 0.0001  # learning rate of the actor
     config.lr_critic = 0.001  # learning rate of the critic
+    config.n_agents = n_agents
     config.update_every = 2  # steps to update
     config.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     config_file = open(os.path.join(log_dir, "config.json"), "w+")
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     scores_avg = []
     scores_window = deque(maxlen=100)  # last 100 scores
 
-    agent = MultiAgent(config, state_size * state_multiplier, action_size, n_agents, rand_seed)
+    agent = MultiAgent(config, state_size * state_multiplier, action_size, rand_seed)
 
     print('\nTRAINING:')
     # start the training
