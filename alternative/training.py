@@ -16,6 +16,8 @@ from munch import Munch, DefaultMunch
 from tensorboardX import SummaryWriter
 import random
 
+from utility.ReplayMemory import ExperienceReplayMemory
+
 '''
 Begin help functions and variables
 '''
@@ -67,6 +69,9 @@ if __name__ == '__main__':
     config.lr_actor = 0.0001  # learning rate of the actor
     config.lr_critic = 0.001  # learning rate of the critic
     config.n_agents = n_agents
+    config.state_size = state_size * state_multiplier
+    config.action_size = action_size
+    config.memory = ExperienceReplayMemory(config.buffer_size, seed)
     config.update_every = 2  # steps to update
     config.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     config_file = open(os.path.join(log_dir, "config.json"), "w+")

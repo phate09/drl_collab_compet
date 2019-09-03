@@ -25,31 +25,29 @@ class Agent(object):
     environment
     '''
 
-    def __init__(self, config1: DefaultMunch, state_size, action_size, rand_seed, meta_agent):
+    def __init__(self, config1: DefaultMunch, rand_seed, meta_agent):
         '''Initialize an MetaAgent object.
 
-        :param state_size: int. dimension of each state
-        :param action_size: int. dimension of each action
         :param nb_agents: int. number of agents to use
         :param rand_seed: int. random seed
         :param memory: ReplayBuffer object.
         '''
         self.config = config1
-        self.action_size = action_size
-
+        self.action_size = self.config.action_size
+        self.state_size = self.config.state_size
         # Actor Network (w/ Target Network)
-        self.actor_local = Actor(state_size, action_size, rand_seed).to(self.config.device)
-        self.actor_target = Actor(state_size, action_size, rand_seed).to(self.config.device)
+        self.actor_local = Actor(self.state_size, self.config.action_size, rand_seed).to(self.config.device)
+        self.actor_target = Actor(self.state_size, self.config.action_size, rand_seed).to(self.config.device)
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.config.lr_actor)
 
         # Critic Network (w/ Target Network)
-        self.critic_local = Critic(state_size, action_size, meta_agent.n_agents, rand_seed).to(self.config.device)
-        self.critic_target = Critic(state_size, action_size, meta_agent.n_agents, rand_seed).to(self.config.device)
+        self.critic_local = Critic(self.state_size, self.config.action_size, meta_agent.n_agents, rand_seed).to(self.config.device)
+        self.critic_target = Critic(self.state_size, self.config.action_size, meta_agent.n_agents, rand_seed).to(self.config.device)
 
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.config.lr_critic)
 
         # Noise process
-        self.noise = OUNoise(action_size, rand_seed)
+        self.noise = OUNoise(self.config.action_size, rand_seed)
 
         # Replay memory
         self.memory = meta_agent.memory

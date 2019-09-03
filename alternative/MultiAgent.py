@@ -21,7 +21,7 @@ class MultiAgent(object):
         self.memory = ExperienceReplayMemory(self.config.buffer_size, rand_seed)
         self.n_agents = config.n_agents
         self.action_size = action_size
-        self.agents = [Agent(config, state_size, action_size, rand_seed, self) for i in range(self.n_agents)]
+        self.agents = [Agent(config, rand_seed, self) for i in range(self.n_agents)]
 
     def step(self, states, actions, rewards, next_states, dones):
         self.memory.add((states[0], actions[0], rewards[0], next_states[0], dones[0], states[1], actions[1], next_states[1]))
