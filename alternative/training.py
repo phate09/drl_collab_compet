@@ -57,7 +57,7 @@ if __name__ == '__main__':
     os.mkdir(log_dir)
     print(f"logging to {log_dir}")
     writer = SummaryWriter(log_dir=log_dir)
-
+    rand_seed = 0
     config = DefaultMunch()
     config.seed = seed
     config.n_episodes = 40000
@@ -71,13 +71,13 @@ if __name__ == '__main__':
     config.n_agents = n_agents
     config.state_size = state_size * state_multiplier
     config.action_size = action_size
-    config.memory = ExperienceReplayMemory(config.buffer_size, seed)
+    config.memory = ExperienceReplayMemory(config.buffer_size, rand_seed)
     config.update_every = 2  # steps to update
     config.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     config_file = open(os.path.join(log_dir, "config.json"), "w+")
     config_file.write(json.dumps(json.loads(jsonpickle.encode(config, unpicklable=False, max_depth=1)), indent=4, sort_keys=True))
     config_file.close()
-    rand_seed = 0
+
     scores = []
     scores_std = []
     scores_avg = []
@@ -100,7 +100,6 @@ if __name__ == '__main__':
             next_states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the next state
             rewards = torch.tensor(env_info.rewards, dtype=torch.float, device=device).unsqueeze(dim=1)  # get the reward
             dones = torch.tensor(env_info.local_done, dtype=torch.uint8, device=device).unsqueeze(dim=1)  # see if episode has finished
-            # next_states, rewards, dones = env.step(actions)
             agent.step(states, actions, rewards, next_states, dones)
             global_steps += 1
             score += torch.max(rewards).item()
