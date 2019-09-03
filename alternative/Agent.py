@@ -32,12 +32,13 @@ class Agent(object):
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(self.state_size, self.config.action_size, rand_seed).to(self.config.device)
         self.actor_target = Actor(self.state_size, self.config.action_size, rand_seed).to(self.config.device)
+        self.actor_target.load_state_dict(self.actor_local.state_dict())
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.config.lr_actor)
 
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(self.state_size, self.config.action_size, self.config.n_agents, rand_seed).to(self.config.device)
         self.critic_target = Critic(self.state_size, self.config.action_size, self.config.n_agents, rand_seed).to(self.config.device)
-
+        self.critic_target.load_state_dict(self.critic_local.state_dict())
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.config.lr_critic)
 
         # Noise process

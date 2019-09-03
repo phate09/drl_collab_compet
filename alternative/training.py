@@ -71,6 +71,8 @@ if __name__ == '__main__':
     config.n_agents = n_agents
     config.state_size = state_size * state_multiplier
     config.action_size = action_size
+    config.learn_start = 1000
+    config.max_action = 1
     config.memory = ExperienceReplayMemory(config.buffer_size, rand_seed)
     config.update_every = 2  # steps to update
     config.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -95,7 +97,10 @@ if __name__ == '__main__':
         score = 0
         # noise_magnitude = noise_scheduler.get(global_steps)
         for i in range(config.max_t):
-            actions = agent.act(states, add_noise=True)
+            if global_steps < config.learn_start:
+                actions = (torch.rand(n_agents, action_size) * 2).to(device) - config.max_action
+            else:
+                actions = agent.act(states, add_noise=True)
             env_info = env.step(actions.cpu().numpy())[env.brain_names[0]]
             next_states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the next state
             rewards = torch.tensor(env_info.rewards, dtype=torch.float, device=device).unsqueeze(dim=1)  # get the reward
@@ -115,10 +120,10 @@ if __name__ == '__main__':
         writer.add_scalar('data/score_max', np.max(scores_window), i_episode)
         writer.add_scalar('data/score_min', np.min(scores_window), i_episode)
         writer.add_scalar('data/score_std', np.std(scores_window), i_episode)
-        s_msg = '\rEpisode {}\tAverage Score: {:.3f}\tσ: {:.3f}\tScore: {:.3f}'
-        print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), np.max(score)), end="")
+        s_msg = '\rEpisode {}\tAverage Score: {:.3f}\tσ: {:.3f}\tStep: {:.3f}'
+        print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), global_steps), end="")
         if i_episode % 100 == 0 and i_episode != 0:
-            print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), np.max(score)))
+            print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), global_steps))
             agent.save(os.path.join(log_dir, f"checkpoint_{i_episode}.pth"), i_episode)
         if np.mean(scores_window) >= 0.9:
             SOLVED = True
