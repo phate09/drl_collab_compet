@@ -42,7 +42,7 @@ class MultiAgent(object):
         '''
         self.config = config
         # Replay memory
-        self.memory = ReplayBuffer(self.config.BUFFER_SIZE, rand_seed)
+        self.memory = ReplayBuffer(self.config.buffer_size, rand_seed)
         self.n_agents = nb_agents
         self.na_idx = np.arange(self.n_agents)
         self.action_size = action_size
@@ -51,19 +51,10 @@ class MultiAgent(object):
         self.agents = [Agent(config, state_size, action_size, rand_seed, self) for i in range(nb_agents)]
 
     def step(self, states, actions, rewards, next_states, dones):
-        # self.memory.add((states[0],actions[0],rewards[0],next_states[0],dones[0],states[1],actions[1],states[1]))
-        # self.l_agents[0].step()
-        # self.memory.add((states[1], actions[1], rewards[1], next_states[1], dones[1], states[0], actions[0], states[0]))
-        # self.l_agents[1].step()
-        experience = zip(self.agents, states, actions, rewards, next_states, dones)
-        for i, e in enumerate(experience):
-            agent, state, action, reward, next_state, done = e
-            na_filtered = self.na_idx[self.na_idx != i]
-            others_states = states[na_filtered]
-            others_actions = actions[na_filtered]
-            others_next_states = next_states[na_filtered]
-            self.memory.add((state, action, reward, next_state, done, others_states, others_actions, others_next_states))
-            agent.step()
+        self.memory.add((states[0], actions[0], rewards[0], next_states[0], dones[0], states[1], actions[1], next_states[1]))
+        self.agents[0].step()
+        self.memory.add((states[1], actions[1], rewards[1], next_states[1], dones[1], states[0], actions[0], next_states[0]))
+        self.agents[1].step()
 
     def act(self, states, add_noise=True):
         actions1: torch.Tensor = self.agents[0].act(states[0], add_noise)
@@ -103,15 +94,15 @@ class Agent(object):
         self.action_size = action_size
 
         # Actor Network (w/ Target Network)
-        self.actor_local = Actor(state_size, action_size, rand_seed).to(self.config.DEVC)
-        self.actor_target = Actor(state_size, action_size, rand_seed).to(self.config.DEVC)
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.config.LR_ACTOR)
+        self.actor_local = Actor(state_size, action_size, rand_seed).to(self.config.device)
+        self.actor_target = Actor(state_size, action_size, rand_seed).to(self.config.device)
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.config.lr_actor)
 
         # Critic Network (w/ Target Network)
-        self.critic_local = Critic(state_size, action_size, meta_agent.n_agents, rand_seed).to(self.config.DEVC)
-        self.critic_target = Critic(state_size, action_size, meta_agent.n_agents, rand_seed).to(self.config.DEVC)
+        self.critic_local = Critic(state_size, action_size, meta_agent.n_agents, rand_seed).to(self.config.device)
+        self.critic_target = Critic(state_size, action_size, meta_agent.n_agents, rand_seed).to(self.config.device)
 
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.config.LR_CRITIC)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.config.lr_critic)
 
         # Noise process
         self.noise = OUNoise(action_size, rand_seed)
@@ -119,21 +110,21 @@ class Agent(object):
         # Replay memory
         self.memory = meta_agent.memory
 
-        # Initialize time step (for updating every UPDATE_EVERY steps)
+        # Initialize time step (for updating every update_every steps)
         self.t_step = 0
 
     def step(self):
 
-        # Learn every UPDATE_EVERY time steps.
-        self.t_step = (self.t_step + 1) % self.config.UPDATE_EVERY
+        # Learn every update_every time steps.
+        self.t_step = (self.t_step + 1) % self.config.update_every
         if self.t_step == 0:
             # If enough samples are available in memory, get random subset
             # and learn
-            if len(self.memory) > self.config.BATCH_SIZE:
+            if len(self.memory) > self.config.batch_size:
                 # source: Sample a random minibatch of N transitions from R
-                experiences = self.memory.sample(self.config.BATCH_SIZE)
+                experiences = self.memory.sample(self.config.batch_size)
                 states, actions, rewards, next_states, dones, others_states, others_actions, others_next_states = zip(*experiences)
-                self.learn((torch.stack(states), torch.stack(actions), torch.stack(rewards), torch.stack(next_states), torch.stack(dones), torch.stack(others_states).squeeze(), torch.stack(others_actions).squeeze(), torch.stack(others_next_states).squeeze()), self.config.GAMMA)
+                self.learn((torch.stack(states), torch.stack(actions), torch.stack(rewards), torch.stack(next_states), torch.stack(dones), torch.stack(others_states).squeeze(), torch.stack(others_actions).squeeze(), torch.stack(others_next_states).squeeze()), self.config.gamma)
 
     def act(self, states, add_noise=True):
         '''Returns actions for given states as per current policy.
@@ -141,7 +132,7 @@ class Agent(object):
         :param states: array_like. current states
         :param add_noise: Boolean. If should add noise to the action
         '''
-        # states = torch.from_numpy(states).float().to(self.config.DEVC)
+        # states = torch.from_numpy(states).float().to(self.config.device)
         self.actor_local.eval()
         with torch.no_grad():
             actions = self.actor_local(states)
@@ -150,7 +141,7 @@ class Agent(object):
         # policy and exploration noise
         if add_noise:
             sample_np = self.noise.sample()
-            sample = torch.tensor(sample_np, dtype=torch.float, device=self.config.DEVC)
+            sample = torch.tensor(sample_np, dtype=torch.float, device=self.config.device)
             actions += sample
         clipped = torch.clamp(actions, -1, 1)
         return clipped
@@ -173,16 +164,16 @@ class Agent(object):
          others_actions, others_next_states) = experiences
         # rewards_ = torch.clamp(rewards, min=-1., max=1.)
         rewards_ = rewards
-        all_states = torch.cat((states, others_states), dim=1).to(self.config.DEVC)
-        all_actions = torch.cat((actions, others_actions), dim=1).to(self.config.DEVC)
-        all_next_states = torch.cat((next_states, others_next_states), dim=1).to(self.config.DEVC)
+        all_states = torch.cat((states, others_states), dim=1).to(self.config.device)
+        all_actions = torch.cat((actions, others_actions), dim=1).to(self.config.device)
+        all_next_states = torch.cat((next_states, others_next_states), dim=1).to(self.config.device)
 
         # --------------------------- update critic ---------------------------
         # Get predicted next-state actions and Q values from target models
         l_all_next_actions = []
         l_all_next_actions.append(self.actor_target(states))
         l_all_next_actions.append(self.actor_target(others_states))
-        all_next_actions = torch.cat(l_all_next_actions, dim=1).to(self.config.DEVC)
+        all_next_actions = torch.cat(l_all_next_actions, dim=1).to(self.config.device)
 
         Q_targets_next = self.critic_target(all_next_states, all_next_actions)
         # Compute Q targets for current states (y_i)
@@ -202,7 +193,7 @@ class Agent(object):
         this_actions_pred = self.actor_local(states)
         others_actions_pred = self.actor_local(others_states)
         others_actions_pred = others_actions_pred.detach()
-        actions_pred = torch.cat((this_actions_pred, others_actions_pred), dim=1).to(self.config.DEVC)
+        actions_pred = torch.cat((this_actions_pred, others_actions_pred), dim=1).to(self.config.device)
         actor_loss = -self.critic_local(all_states, actions_pred).mean()
         # Minimize the loss
         self.actor_optimizer.zero_grad()
@@ -212,8 +203,8 @@ class Agent(object):
         # ---------------------- update target networks ----------------------
         # Update the critic target networks: θQ′ ←τθQ +(1−τ)θQ′
         # Update the actor target networks: θμ′ ←τθμ +(1−τ)θμ′
-        self.soft_update(self.critic_local, self.critic_target, self.config.TAU)
-        self.soft_update(self.actor_local, self.actor_target, self.config.TAU)
+        self.soft_update(self.critic_local, self.critic_target, self.config.tau)
+        self.soft_update(self.actor_local, self.actor_target, self.config.tau)
 
     def soft_update(self, local_model, target_model, tau):
         '''Soft update model parameters.

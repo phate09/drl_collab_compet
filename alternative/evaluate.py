@@ -60,15 +60,14 @@ if __name__ == '__main__':
     config.seed = seed
     config.n_episodes = 40000
     config.max_t = 1000
-    config.BUFFER_SIZE = 100000  # replay buffer size
-    config.BATCH_SIZE = 200  # minibatch size
-    config.GAMMA = 0.99  # discount factor
-    config.TAU = 0.001  # for soft update of targt params
-    config.LR_ACTOR = 0.0001  # learning rate of the actor
-    config.LR_CRITIC = 0.001  # learning rate of the critic
-    config.WEIGHT_DECAY = 0.0001  # L2 weight decay
-    config.UPDATE_EVERY = 2  # steps to update
-    config.DEVC = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    config.buffer_size = 100000  # replay buffer size
+    config.batch_size = 200  # minibatch size
+    config.gamma = 0.99  # discount factor
+    config.tau = 0.001  # for soft update of targt params
+    config.lr_actor = 0.0001  # learning rate of the actor
+    config.lr_critic = 0.001  # learning rate of the critic
+    config.update_every = 2  # steps to update
+    config.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     config_file = open(os.path.join(log_dir, "config.json"), "w+")
     config_file.write(json.dumps(json.loads(jsonpickle.encode(config, unpicklable=False, max_depth=1)), indent=4, sort_keys=True))
     config_file.close()
