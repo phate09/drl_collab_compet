@@ -60,7 +60,7 @@ if __name__ == '__main__':
     scores_window = deque(maxlen=100)  # last 100 scores
 
     agent = MultiAgent(config)
-    agent.load("../runs/Sep03_20-02-15_TD3 Unity Tennis/checkpoint_success.pth")
+    agent.load("../runs/Sep04_18-36-00_TD3 Unity Tennis/checkpoint_success.pth")
     print('\nEVALUATING:')
     # start the training
     global_steps = 0

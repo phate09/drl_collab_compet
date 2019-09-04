@@ -70,7 +70,7 @@ class Agent(object):
         others_actions_pred = self.actor_local(others_states)
         others_actions_pred = others_actions_pred.detach()
         actions_pred = torch.cat((this_actions_pred, others_actions_pred), dim=1).to(self.config.device)
-        actor_loss = -self.parent.critic_local(all_states, actions_pred).mean()
+        actor_loss = -self.parent.critic_local(all_states, actions_pred).mean() + 0.01 * (actions_pred ** 2).mean()  # added penalty for "moving" unnecessarily
         # Minimize the loss
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
