@@ -1,30 +1,18 @@
 import json
-
-import jsonpickle
-import yaml
-
-from alternative.MultiAgent import MultiAgent
-from unityagents import UnityEnvironment
 import os
+import random
 from collections import deque
 from datetime import datetime
 
+import jsonpickle
 import numpy as np
 import torch
-import torch.optim as optim
-from munch import Munch, DefaultMunch
+from munch import DefaultMunch
 from tensorboardX import SummaryWriter
-import random
+from unityagents import UnityEnvironment
 
+from alternative.MultiAgent import MultiAgent
 from utility.ReplayMemory import ExperienceReplayMemory
-
-'''
-Begin help functions and variables
-'''
-SOLVED = False
-'''
-End help functions and variables
-'''
 
 if __name__ == '__main__':
 
@@ -49,10 +37,6 @@ if __name__ == '__main__':
     state_multiplier = brain.num_stacked_vector_observations
     action_type = brain.vector_action_space_type
     comment = f"TD3 Unity Tennis"
-    # actor1.test(device)
-    optimizer_actor_fn = lambda actor: optim.Adam(actor.parameters(), lr=1e-4)
-    optimizer_critic_fn = lambda critic: optim.Adam(critic.parameters(), lr=1e-4)
-    ending_condition = lambda result: result['mean'] >= 300.0
     log_dir = os.path.join('../runs', current_time + '_' + comment)
     os.mkdir(log_dir)
     print(f"logging to {log_dir}")
@@ -71,8 +55,8 @@ if __name__ == '__main__':
     config.n_agents = n_agents
     config.state_size = state_size * state_multiplier
     config.action_size = action_size
-    config.learn_start = 1000
-    config.max_action = 1
+    config.learn_start = 10000
+    config.max_action = 1  # maximum value allowed for each action
     config.memory = ExperienceReplayMemory(config.buffer_size, rand_seed)
     config.update_every = 2  # steps to update
     config.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -87,8 +71,6 @@ if __name__ == '__main__':
 
     agent = MultiAgent(config, state_size * state_multiplier, action_size, rand_seed)
 
-    print('\nTRAINING:')
-    # start the training
     global_steps = 0
     noise_scheduler = config.noise_scheduler
     for i_episode in range(config.n_episodes):
@@ -120,13 +102,12 @@ if __name__ == '__main__':
         writer.add_scalar('data/score_max', np.max(scores_window), i_episode)
         writer.add_scalar('data/score_min', np.min(scores_window), i_episode)
         writer.add_scalar('data/score_std', np.std(scores_window), i_episode)
-        s_msg = '\rEpisode {}\tAverage Score: {:.3f}\tσ: {:.3f}\tStep: {:.3f}'
+        s_msg = '\rEpisode {}\tAverage Score: {:.3f}\tσ: {:.3f}\tStep: {:}'
         print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), global_steps), end="")
         if i_episode % 100 == 0 and i_episode != 0:
             print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), global_steps))
             agent.save(os.path.join(log_dir, f"checkpoint_{i_episode}.pth"), i_episode)
         if np.mean(scores_window) >= 0.9:
-            SOLVED = True
             s_msg = '\n\nEnvironment solved in {:d} episodes!\tAverage Score: {:.3f}\tσ: {:.3f}'
             print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window)))
             agent.save(os.path.join(log_dir, f"checkpoint_success.pth"), i_episode)

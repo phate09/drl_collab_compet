@@ -1,14 +1,3 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-"""
-Implement a model-free approach called Deep DPG (DDPG)
-
-
-@author: udacity, ucaiado
-
-Created on 10/07/2018
-"""
-
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -20,62 +9,39 @@ from utility.noise import OUNoise
 
 
 class Agent(object):
-    '''
-    Implementation of a DQN agent that interacts with and learns from the
-    environment
-    '''
-
     def __init__(self, config: DefaultMunch, rand_seed):
         self.config = config
         self.action_size = self.config.action_size
         self.state_size = self.config.state_size
-        # Actor Network (w/ Target Network)
+
         self.actor_local = Actor(self.state_size, self.config.action_size, rand_seed).to(self.config.device)
         self.actor_target = Actor(self.state_size, self.config.action_size, rand_seed).to(self.config.device)
         self.actor_target.load_state_dict(self.actor_local.state_dict())
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.config.lr_actor)
 
-        # Critic Network (w/ Target Network)
         self.critic_local = Critic(self.state_size, self.config.action_size, self.config.n_agents, rand_seed).to(self.config.device)
         self.critic_target = Critic(self.state_size, self.config.action_size, self.config.n_agents, rand_seed).to(self.config.device)
         self.critic_target.load_state_dict(self.critic_local.state_dict())
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.config.lr_critic)
 
-        # Noise process
+        self.memory = self.config.memory
+        self.t_step = 0
         self.noise = OUNoise(self.config.action_size, rand_seed)
 
-        # Replay memory
-        self.memory = self.config.memory
-
-        # Initialize time step (for updating every update_every steps)
-        self.t_step = 0
-
     def step(self):
-
-        # Learn every update_every time steps.
         self.t_step = (self.t_step + 1) % self.config.update_every
         if self.t_step == 0:
-            # If enough samples are available in memory, get random subset
-            # and learn
             if len(self.memory) > self.config.batch_size:
-                # source: Sample a random minibatch of N transitions from R
                 experiences, _, _ = self.memory.sample(self.config.batch_size)
                 states, actions, rewards, next_states, dones, others_states, others_actions, others_next_states = zip(*experiences)
                 self.learn((torch.stack(states), torch.stack(actions), torch.stack(rewards), torch.stack(next_states), torch.stack(dones), torch.stack(others_states).squeeze(), torch.stack(others_actions).squeeze(), torch.stack(others_next_states).squeeze()), self.config.gamma)
 
     def act(self, states, add_noise=True):
-        '''Returns actions for given states as per current policy.
-
-        :param states: array_like. current states
-        :param add_noise: Boolean. If should add noise to the action
-        '''
-        # states = torch.from_numpy(states).float().to(self.config.device)
         self.actor_local.eval()
         with torch.no_grad():
             actions = self.actor_local(states)
         self.actor_local.train()
-        # source: Select action at = μ(st|θμ) + Nt according to the current
-        # policy and exploration noise
+
         if add_noise:
             sample_np = self.noise.sample()
             sample = torch.tensor(sample_np, dtype=torch.float, device=self.config.device)

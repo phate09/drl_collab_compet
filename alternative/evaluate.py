@@ -1,30 +1,14 @@
-import json
-
-import jsonpickle
-import yaml
-
-from alternative.MultiAgent import MultiAgent
-from unityagents import UnityEnvironment
-import os
+import random
 from collections import deque
 from datetime import datetime
 
 import numpy as np
 import torch
-import torch.optim as optim
-from munch import Munch, DefaultMunch
-from tensorboardX import SummaryWriter
-import random
+from munch import DefaultMunch
+from unityagents import UnityEnvironment
 
+from alternative.MultiAgent import MultiAgent
 from utility.ReplayMemory import ExperienceReplayMemory
-
-'''
-Begin help functions and variables
-'''
-SOLVED = False
-'''
-End help functions and variables
-'''
 
 if __name__ == '__main__':
 
@@ -103,11 +87,4 @@ if __name__ == '__main__':
         scores_avg.append(np.mean(scores_window))
         s_msg = '\rEpisode {}\tAverage Score: {:.3f}\tσ: {:.3f}\tStep: {:.3f}'
         print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), global_steps), end="")
-        # if i_episode % 100 == 0 and i_episode != 0:
-        #     print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), global_steps))
-        # if np.mean(scores_window) >= 0.9:
-        #     SOLVED = True
-        #     s_msg = '\n\nEnvironment solved in {:d} episodes!\tAverage Score: {:.3f}\tσ: {:.3f}'
-        #     print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window)))
-        #     break
     print("Finished.")
