@@ -2,6 +2,8 @@ import torch
 from munch import DefaultMunch
 
 from alternative.Agent import Agent
+from alternative.models import Critic
+import torch.optim as optim
 
 
 class MultiAgent(object):
@@ -10,7 +12,12 @@ class MultiAgent(object):
         self.memory = self.config.memory
         self.n_agents = self.config.n_agents
         self.action_size = self.config.action_size
-        self.agents = [Agent(self.config) for i in range(self.n_agents)]
+        self.state_size = self.config.state_size
+        self.critic_local = Critic(self.state_size, self.config.action_size, self.config.n_agents).to(self.config.device)
+        self.critic_target = Critic(self.state_size, self.config.action_size, self.config.n_agents).to(self.config.device)
+        self.critic_target.load_state_dict(self.critic_local.state_dict())
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.config.lr_critic)
+        self.agents = [Agent(self.config,self) for i in range(self.n_agents)]
 
     def step(self, states, actions, rewards, next_states, dones):
         self.memory.add((states[0], actions[0], rewards[0], next_states[0], dones[0], states[1], actions[1], next_states[1]))

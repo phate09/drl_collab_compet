@@ -1,28 +1,23 @@
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-
 from munch import DefaultMunch
 
-from alternative.models import Actor, Critic
+from alternative.models import Actor
 from utility.noise import OUNoise
 
 
 class Agent(object):
-    def __init__(self, config: DefaultMunch):
+    def __init__(self, config: DefaultMunch, parent):
         self.config = config
         self.action_size = self.config.action_size
         self.state_size = self.config.state_size
+        self.parent = parent
 
         self.actor_local = Actor(self.state_size, self.config.action_size).to(self.config.device)
         self.actor_target = Actor(self.state_size, self.config.action_size).to(self.config.device)
         self.actor_target.load_state_dict(self.actor_local.state_dict())
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.config.lr_actor)
-
-        self.critic_local = Critic(self.state_size, self.config.action_size, self.config.n_agents).to(self.config.device)
-        self.critic_target = Critic(self.state_size, self.config.action_size, self.config.n_agents).to(self.config.device)
-        self.critic_target.load_state_dict(self.critic_local.state_dict())
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.config.lr_critic)
 
         self.memory = self.config.memory
         self.t_step = 0
@@ -61,21 +56,21 @@ class Agent(object):
 
         # --------------------------- update critic ---------------------------
         all_next_actions = torch.cat([self.actor_target(states), self.actor_target(others_states)], dim=1).to(self.config.device)
-        Q_targets_next = self.critic_target(all_next_states, all_next_actions)
+        Q_targets_next = self.parent.critic_target(all_next_states, all_next_actions)
         Q_targets = rewards + (gamma * Q_targets_next * (1 - dones.float()))
-        Q_expected = self.critic_local(all_states, all_actions)
+        Q_expected = self.parent.critic_local(all_states, all_actions)
         critic_loss = F.mse_loss(Q_expected, Q_targets)
-        self.critic_optimizer.zero_grad()
+        self.parent.critic_optimizer.zero_grad()
         critic_loss.backward()
         # torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
-        self.critic_optimizer.step()
+        self.parent.critic_optimizer.step()
 
         # --------------------------- update actor ---------------------------
         this_actions_pred = self.actor_local(states)
         others_actions_pred = self.actor_local(others_states)
         others_actions_pred = others_actions_pred.detach()
         actions_pred = torch.cat((this_actions_pred, others_actions_pred), dim=1).to(self.config.device)
-        actor_loss = -self.critic_local(all_states, actions_pred).mean()
+        actor_loss = -self.parent.critic_local(all_states, actions_pred).mean()
         # Minimize the loss
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
@@ -83,7 +78,7 @@ class Agent(object):
         self.actor_optimizer.step()
 
         # ---------------------- update target networks ----------------------
-        self.soft_update(self.critic_local, self.critic_target, self.config.tau)
+        self.soft_update(self.parent.critic_local, self.parent.critic_target, self.config.tau)
         self.soft_update(self.actor_local, self.actor_target, self.config.tau)
 
     def soft_update(self, local_model, target_model, tau):
@@ -104,20 +99,20 @@ class Agent(object):
             "global_step": global_step,
             "actor": self.actor_local.state_dict(),
             "target_actor": self.actor_target.state_dict(),
-            "critic": self.critic_local.state_dict(),
-            "target_critic": self.critic_target.state_dict(),
+            "critic": self.parent.critic_local.state_dict(),
+            "target_critic": self.parent.critic_target.state_dict(),
             "optimiser_actor": self.actor_optimizer.state_dict(),
-            "optimiser_critic": self.critic_optimizer.state_dict(),
+            "optimiser_critic": self.parent.critic_optimizer.state_dict(),
         }, path)
 
     def load(self, path):
         checkpoint = torch.load(path)
         self.actor_local.load_state_dict(checkpoint["actor"])
         self.actor_target.load_state_dict(checkpoint["target_actor"])
-        self.critic_local.load_state_dict(checkpoint["critic"])
-        self.critic_target.load_state_dict(checkpoint["target_critic"])
+        self.parent.critic_local.load_state_dict(checkpoint["critic"])
+        self.parent.critic_target.load_state_dict(checkpoint["target_critic"])
         self.actor_optimizer.load_state_dict(checkpoint["optimiser_actor"])
-        self.critic_optimizer.load_state_dict(checkpoint["optimiser_critic"])
+        self.parent.critic_optimizer.load_state_dict(checkpoint["optimiser_critic"])
         self.replay_buffer = checkpoint["optimiser_critic"]
         self.global_step = checkpoint["global_step"]
         print(f'Loading complete')

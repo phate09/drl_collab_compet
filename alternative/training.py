@@ -25,7 +25,7 @@ if __name__ == '__main__':
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
-    worker_id = 1
+    worker_id = 2
     print(f'Worker_id={worker_id}')
     env = UnityEnvironment("../environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
     brain = env.brains[env.brain_names[0]]
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     config.gamma = 0.99
     config.tau = 0.001
     config.lr_actor = 0.0001
-    config.lr_critic = 0.001
+    config.lr_critic = 0.0001
     config.n_agents = n_agents
     config.state_size = state_size * state_multiplier
     config.action_size = action_size
