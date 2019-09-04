@@ -7,7 +7,6 @@ from alternative.Agent import Agent
 class MultiAgent(object):
     def __init__(self, config: DefaultMunch):
         self.config = config
-        # Replay memory
         self.memory = self.config.memory
         self.n_agents = self.config.n_agents
         self.action_size = self.config.action_size
