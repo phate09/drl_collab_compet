@@ -11,7 +11,7 @@ from munch import DefaultMunch
 from tensorboardX import SummaryWriter
 from unityagents import UnityEnvironment
 
-from alternative.MultiAgent import MultiAgent
+from MultiAgent import MultiAgent
 from utility.ReplayMemory import ExperienceReplayMemory
 
 if __name__ == '__main__':
@@ -21,13 +21,13 @@ if __name__ == '__main__':
     current_time = now.strftime('%b%d_%H-%M-%S')
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("using device: ", device)
-    seed = 2
+    seed = 3
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
-    worker_id = 2
+    worker_id = 1
     print(f'Worker_id={worker_id}')
-    env = UnityEnvironment("../environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
+    env = UnityEnvironment("./environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=True)
     brain = env.brains[env.brain_names[0]]
     env_info = env.reset(train_mode=True)[env.brain_names[0]]
     n_agents = len(env_info.agents)
@@ -36,8 +36,8 @@ if __name__ == '__main__':
     state_size = brain.vector_observation_space_size
     state_multiplier = brain.num_stacked_vector_observations
     action_type = brain.vector_action_space_type
-    comment = f"TD3 Unity Tennis"
-    log_dir = os.path.join('../runs', current_time + '_' + comment)
+    comment = f"MADDPG Unity Tennis"
+    log_dir = os.path.join('./runs', current_time + '_' + comment)
     os.mkdir(log_dir)
     print(f"logging to {log_dir}")
     writer = SummaryWriter(log_dir=log_dir)
@@ -66,26 +66,24 @@ if __name__ == '__main__':
     scores = []
     scores_std = []
     scores_avg = []
-    scores_window = deque(maxlen=100)  # last 100 scores
+    scores_window = deque(maxlen=100)
 
     agent = MultiAgent(config)
 
     global_steps = 0
-    noise_scheduler = config.noise_scheduler
     for i_episode in range(config.n_episodes):
-        env_info = env.reset(train_mode=True)[env.brain_names[0]]  # reset the environment
-        states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the current state
+        env_info = env.reset(train_mode=True)[env.brain_names[0]]
+        states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)
         score = 0
-        # noise_magnitude = noise_scheduler.get(global_steps)
         for i in range(config.max_t):
             if global_steps < config.learn_start:
                 actions = (torch.rand(n_agents, action_size) * 2).to(device) - config.max_action
             else:
                 actions = agent.act(states, add_noise=True)
             env_info = env.step(actions.cpu().numpy())[env.brain_names[0]]
-            next_states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)  # get the next state
-            rewards = torch.tensor(env_info.rewards, dtype=torch.float, device=device).unsqueeze(dim=1)  # get the reward
-            dones = torch.tensor(env_info.local_done, dtype=torch.uint8, device=device).unsqueeze(dim=1)  # see if episode has finished
+            next_states = torch.tensor(env_info.vector_observations, dtype=torch.float, device=device)
+            rewards = torch.tensor(env_info.rewards, dtype=torch.float, device=device).unsqueeze(dim=1)
+            dones = torch.tensor(env_info.local_done, dtype=torch.uint8, device=device).unsqueeze(dim=1)
             agent.step(states, actions, rewards, next_states, dones)
             global_steps += 1
             score += torch.max(rewards).item()
@@ -101,14 +99,14 @@ if __name__ == '__main__':
         writer.add_scalar('data/score_max', np.max(scores_window), i_episode)
         writer.add_scalar('data/score_min', np.min(scores_window), i_episode)
         writer.add_scalar('data/score_std', np.std(scores_window), i_episode)
-        s_msg = '\rEpisode {}\tAverage Score: {:.3f}\tσ: {:.3f}\tStep: {:}'
-        print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), global_steps), end="")
+        s_msg = '\rEpisode {}\tAverage Score: {:.3f}\tStep: {:}'
+        print(s_msg.format(i_episode, np.mean(scores_window), global_steps), end="")
         if i_episode % 100 == 0 and i_episode != 0:
             print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window), global_steps))
             agent.save(os.path.join(log_dir, f"checkpoint_{i_episode}.pth"), i_episode)
         if np.mean(scores_window) >= 0.9:
-            s_msg = '\n\nEnvironment solved in {:d} episodes!\tAverage Score: {:.3f}\tσ: {:.3f}'
-            print(s_msg.format(i_episode, np.mean(scores_window), np.std(scores_window)))
+            s_msg = '\n\nEnvironment solved in {:d} episodes!\tAverage Score: {:.3f}'
+            print(s_msg.format(i_episode, np.mean(scores_window)))
             agent.save(os.path.join(log_dir, f"checkpoint_success.pth"), i_episode)
             break
     print("Finished.")

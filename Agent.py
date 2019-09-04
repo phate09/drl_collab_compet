@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from munch import DefaultMunch
 
-from alternative.models import Actor
+from models import Actor
 from utility.noise import OUNoise
 
 

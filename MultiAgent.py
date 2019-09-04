@@ -1,8 +1,8 @@
 import torch
 from munch import DefaultMunch
 
-from alternative.Agent import Agent
-from alternative.models import Critic
+from Agent import Agent
+from models import Critic
 import torch.optim as optim
 
 
