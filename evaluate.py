@@ -23,7 +23,7 @@ if __name__ == '__main__':
     random.seed(seed)
     worker_id = 10
     print(f'Worker_id={worker_id}')
-    env = UnityEnvironment("../environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=False)
+    env = UnityEnvironment("./environment/Tennis_Linux/Tennis.x86_64", worker_id=worker_id, seed=seed, no_graphics=False)
     brain = env.brains[env.brain_names[0]]
     env_info = env.reset(train_mode=False)[env.brain_names[0]]
     n_agents = len(env_info.agents)
@@ -59,7 +59,7 @@ if __name__ == '__main__':
     scores_window = deque(maxlen=100)
 
     agent = MultiAgent(config)
-    agent.load("./runs/Sep04_18-36-00_MADDPG Unity Tennis/checkpoint_success.pth")
+    agent.load("./save/checkpoint_success.pth")
     global_steps = 0
     noise_scheduler = config.noise_scheduler
     for i_episode in range(config.n_episodes):
