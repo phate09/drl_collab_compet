@@ -9,24 +9,24 @@ from utility.noise import OUNoise
 
 
 class Agent(object):
-    def __init__(self, config: DefaultMunch, rand_seed):
+    def __init__(self, config: DefaultMunch):
         self.config = config
         self.action_size = self.config.action_size
         self.state_size = self.config.state_size
 
-        self.actor_local = Actor(self.state_size, self.config.action_size, rand_seed).to(self.config.device)
-        self.actor_target = Actor(self.state_size, self.config.action_size, rand_seed).to(self.config.device)
+        self.actor_local = Actor(self.state_size, self.config.action_size).to(self.config.device)
+        self.actor_target = Actor(self.state_size, self.config.action_size).to(self.config.device)
         self.actor_target.load_state_dict(self.actor_local.state_dict())
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.config.lr_actor)
 
-        self.critic_local = Critic(self.state_size, self.config.action_size, self.config.n_agents, rand_seed).to(self.config.device)
-        self.critic_target = Critic(self.state_size, self.config.action_size, self.config.n_agents, rand_seed).to(self.config.device)
+        self.critic_local = Critic(self.state_size, self.config.action_size, self.config.n_agents).to(self.config.device)
+        self.critic_target = Critic(self.state_size, self.config.action_size, self.config.n_agents).to(self.config.device)
         self.critic_target.load_state_dict(self.critic_local.state_dict())
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.config.lr_critic)
 
         self.memory = self.config.memory
         self.t_step = 0
-        self.noise = OUNoise(self.config.action_size, rand_seed)
+        self.noise = OUNoise(self.config.action_size, self.config.seed)
 
     def step(self):
         self.t_step = (self.t_step + 1) % self.config.update_every
@@ -79,6 +79,7 @@ class Agent(object):
         # Minimize the loss
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
+        # torch.nn.utils.clip_grad_norm_(self.actor_local.parameters(), 1)
         self.actor_optimizer.step()
 
         # ---------------------- update target networks ----------------------

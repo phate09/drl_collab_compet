@@ -2,26 +2,16 @@ import torch
 from munch import DefaultMunch
 
 from alternative.Agent import Agent
-from utility.ReplayMemory import ExperienceReplayMemory
 
 
 class MultiAgent(object):
-    '''
-    '''
-
-    def __init__(self, config: DefaultMunch, state_size, action_size, rand_seed):
-        '''Initialize an MultiAgent object.
-
-        :param state_size: int. dimension of each state
-        :param action_size: int. dimension of each action
-        :param rand_seed: int. random seed
-        '''
+    def __init__(self, config: DefaultMunch):
         self.config = config
         # Replay memory
         self.memory = self.config.memory
-        self.n_agents = config.n_agents
-        self.action_size = action_size
-        self.agents = [Agent(config, rand_seed) for i in range(self.n_agents)]
+        self.n_agents = self.config.n_agents
+        self.action_size = self.config.action_size
+        self.agents = [Agent(self.config) for i in range(self.n_agents)]
 
     def step(self, states, actions, rewards, next_states, dones):
         self.memory.add((states[0], actions[0], rewards[0], next_states[0], dones[0], states[1], actions[1], next_states[1]))

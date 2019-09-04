@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class Actor(nn.Module):
-    def __init__(self, state_size, action_size, seed, fc1_units=400,
+    def __init__(self, state_size, action_size, fc1_units=400,
                  fc2_units=300):
         super(Actor, self).__init__()
         self.fc1 = nn.Linear(state_size, fc1_units)
@@ -18,8 +18,7 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, state_size, action_size, nb_agents, seed,
-                 fcs1_units=400, fc2_units=300):
+    def __init__(self, state_size, action_size, nb_agents, fcs1_units=400, fc2_units=300):
         super(Critic, self).__init__()
         self.fcs1 = nn.Linear((state_size + action_size) * nb_agents, fcs1_units)
         self.fc2 = nn.Linear(fcs1_units, fc2_units)

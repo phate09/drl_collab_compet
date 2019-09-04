@@ -41,24 +41,23 @@ if __name__ == '__main__':
     os.mkdir(log_dir)
     print(f"logging to {log_dir}")
     writer = SummaryWriter(log_dir=log_dir)
-    rand_seed = 0
     config = DefaultMunch()
     config.seed = seed
     config.n_episodes = 40000
     config.max_t = 1000
-    config.buffer_size = 100000  # replay buffer size
-    config.batch_size = 200  # minibatch size
-    config.gamma = 0.99  # discount factor
-    config.tau = 0.001  # for soft update of targt params
-    config.lr_actor = 0.0001  # learning rate of the actor
-    config.lr_critic = 0.001  # learning rate of the critic
+    config.buffer_size = 100000
+    config.batch_size = 200
+    config.gamma = 0.99
+    config.tau = 0.001
+    config.lr_actor = 0.0001
+    config.lr_critic = 0.001
     config.n_agents = n_agents
     config.state_size = state_size * state_multiplier
     config.action_size = action_size
     config.learn_start = 10000
     config.max_action = 1  # maximum value allowed for each action
-    config.memory = ExperienceReplayMemory(config.buffer_size, rand_seed)
-    config.update_every = 2  # steps to update
+    config.memory = ExperienceReplayMemory(config.buffer_size, seed)
+    config.update_every = 2
     config.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     config_file = open(os.path.join(log_dir, "config.json"), "w+")
     config_file.write(json.dumps(json.loads(jsonpickle.encode(config, unpicklable=False, max_depth=1)), indent=4, sort_keys=True))
@@ -69,7 +68,7 @@ if __name__ == '__main__':
     scores_avg = []
     scores_window = deque(maxlen=100)  # last 100 scores
 
-    agent = MultiAgent(config, state_size * state_multiplier, action_size, rand_seed)
+    agent = MultiAgent(config)
 
     global_steps = 0
     noise_scheduler = config.noise_scheduler
